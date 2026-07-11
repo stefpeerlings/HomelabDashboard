@@ -130,10 +130,6 @@ def build_status_command(settings: dict | None = None) -> list:
     px_prefix = proxmox_ssh_shell_prefix(proxmox_host) if proxmox_host else None
 
     parts = [
-        "IP=$(hostname -I 2>/dev/null | awk '{print $1}')",
-        'echo "Dashboard: http://${IP:-onbekend}:8765"',
-        "systemctl is-active --quiet homelab-dashboard && echo 'Service: active' || echo 'Service: inactive'",
-        "systemctl is-active --quiet mariadb 2>/dev/null && echo 'MariaDB: active' || true",
         "free -m 2>/dev/null | awk '/^Mem:/{printf \"RAM: %dM / %dM\\n\", $3,$2}'",
         "df -h / 2>/dev/null | awk 'NR==2{printf \"Disk /: %s (%s van %s)\\n\", $5,$3,$2}'",
     ]
@@ -160,14 +156,18 @@ def build_status_command(settings: dict | None = None) -> list:
         "elif [ -n \"$LAST\" ]; then TS=$(echo \"$LAST\" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9:]{4,8}' | tail -1); "
         "echo \"Backup: OK${TS:+ ($TS)}\"; else echo 'Backup: geen recente vzdump'; fi; fi"
     )
-    shutdown_cmd = (
-        "if systemctl list-timers pbs-shutdown.timer --no-pager 2>/dev/null | grep -q pbs-shutdown; then "
+    pbs_timers_cmd = (
+        "if systemctl list-timers pbs-wake.timer --no-pager 2>/dev/null | grep -q pbs-wake; then "
+        "WAKE=$(systemctl list-timers pbs-wake.timer --no-pager --no-legend 2>/dev/null | awk 'NR==1{print $1,$2,$3}'); "
+        "echo \"PBS wake: gepland (${WAKE:-onbekend})\"; "
+        "else echo 'PBS wake: geen timer'; fi"
+        "; if systemctl list-timers pbs-shutdown.timer --no-pager 2>/dev/null | grep -q pbs-shutdown; then "
         "LEFT=$(systemctl list-timers pbs-shutdown.timer --no-pager --no-legend 2>/dev/null | awk 'NR==1{print $1,$2,$3}'); "
         "echo \"PBS shutdown: gepland (${LEFT:-onbekend})\"; "
         "else echo 'PBS shutdown: shutdown mag'; fi"
     )
 
-    for script in (vm_cmd, lxc_cmd, backup_cmd, shutdown_cmd):
+    for script in (vm_cmd, lxc_cmd, backup_cmd, pbs_timers_cmd):
         remote = _status_remote_exec(px_prefix, script)
         if remote:
             parts.append(remote)
@@ -5072,7 +5072,7 @@ HTML = r"""<!DOCTYPE html>
     function paintStatus(text) {
       statusEl.textContent = text.trim() || "(geen output)";
       const low = text.toLowerCase();
-      if (low.includes("offline") || low.includes("mislukt") || low.includes("service: inactive")) {
+      if (low.includes("offline") || low.includes("mislukt")) {
         setStatusState("offline");
       } else if (low.includes("shutdown mag") || low.includes("backup: ok")) {
         setStatusState("idle");
