@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# Koppel Proxmox-node aan statusbalk en auto-panelen.
-#
-# Vanaf Proxmox-host na install:
-#   pct exec <CTID> -- HOMELAB_PROXMOX_HOST=10.0.30.3 HOMELAB_NODE_NAME=minilab \
-#     bash /opt/homelab-dashboard/scripts/seed-proxmox-node.sh
+# Koppel Proxmox-node aan statusbalk en maak auto-panelen aan.
 
 set -euo pipefail
 
@@ -13,7 +9,7 @@ NODE_NAME="${HOMELAB_NODE_NAME:-$PROXMOX_HOST}"
 PBS_HOST="${HOMELAB_PBS_HOST:-}"
 
 [[ -n "$PROXMOX_HOST" ]] || exit 0
-[[ -d "$APP_DIR" ]] || exit 1
+[[ -d "$APP_DIR" ]] || { echo "App niet gevonden: $APP_DIR" >&2; exit 1; }
 
 cd "$APP_DIR"
 # shellcheck disable=SC1091
@@ -39,5 +35,10 @@ update_status_settings(
         "interval_seconds": 5,
     },
 )
+config = load_config()
+auto_panels = [p for p in config.get("panels", []) if p.get("auto")]
 print(f"Proxmox-node gekoppeld: {node_name} ({proxmox_host})")
+print(f"Auto-panelen: {len(auto_panels)}")
+if not auto_panels:
+    raise SystemExit("Geen auto-panelen aangemaakt — controleer SSH naar Proxmox")
 PY

@@ -44,14 +44,31 @@ var_version="${var_version:-13}"
 var_arm64="${var_arm64:-yes}"
 var_unprivileged="${var_unprivileged:-1}"
 
-function configure_dashboard_proxmox_from_host() {
+function finish_dashboard_install() {
   local ctid="${CTID:-}"
   [[ -n "$ctid" ]] || return 0
 
-  local pve_name pve_ip proxmox_target
+  local pve_name pve_ip proxmox_target seed_log="/var/log/homelab-dashboard-seed-${ctid}.log"
   pve_name="$(hostname -s 2>/dev/null || hostname)"
   pve_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
   proxmox_target="${pve_ip:-$pve_name}"
+
+  msg_info "Wachten op dashboard-service in CT ${ctid}..."
+  local ready=false
+  for _ in $(seq 1 45); do
+    if pct exec "$ctid" -- systemctl is-active --quiet homelab-dashboard 2>/dev/null \
+      && pct exec "$ctid" -- systemctl is-active --quiet mariadb 2>/dev/null; then
+      ready=true
+      break
+    fi
+    sleep 2
+  done
+  if [[ "$ready" != true ]]; then
+    msg_warn "Dashboard-service nog niet actief — panelen mogelijk leeg bij eerste openen"
+    return 1
+  fi
+
+  msg_info "Proxmox-node detecteren: ${pve_name} (${proxmox_target})"
 
   local pubkey
   pubkey="$(pct exec "$ctid" -- cat /root/.ssh/id_ed25519_default.pub 2>/dev/null || true)"
@@ -63,12 +80,38 @@ function configure_dashboard_proxmox_from_host() {
     grep -qF "$pubkey" /root/.ssh/authorized_keys 2>/dev/null || echo "$pubkey" >> /root/.ssh/authorized_keys
   fi
 
-  pct exec "$ctid" -- env \
-    HOMELAB_PROXMOX_HOST="$proxmox_target" \
-    HOMELAB_NODE_NAME="$pve_name" \
-    HOMELAB_APP_ROOT=/opt/homelab-dashboard \
-    bash /opt/homelab-dashboard/scripts/seed-proxmox-node.sh \
-    >>"/var/log/homelab-dashboard-seed-${ctid}.log" 2>&1 || true
+  if [[ -n "$pve_name" && -n "$pve_ip" ]]; then
+    pct exec "$ctid" -- bash -c \
+      "grep -qE '[[:space:]]${pve_name}([[:space:]]|\$)' /etc/hosts 2>/dev/null || echo '${pve_ip} ${pve_name}' >> /etc/hosts" \
+      2>/dev/null || true
+  fi
+
+  msg_info "Auto-panelen aanmaken voor ${pve_name}..."
+  : >"$seed_log"
+  local attempt panel_count=0
+  for attempt in 1 2 3 4 5; do
+    if pct exec "$ctid" -- env \
+      HOMELAB_PROXMOX_HOST="$proxmox_target" \
+      HOMELAB_NODE_NAME="$pve_name" \
+      HOMELAB_APP_ROOT=/opt/homelab-dashboard \
+      bash /opt/homelab-dashboard/scripts/seed-proxmox-node.sh >>"$seed_log" 2>&1; then
+      panel_count="$(grep -oE 'Auto-panelen: [0-9]+' "$seed_log" | tail -1 | awk '{print $2}')"
+      [[ -n "$panel_count" && "$panel_count" -gt 0 ]] && break
+    fi
+    sleep 3
+  done
+
+  if [[ -n "$panel_count" && "$panel_count" -gt 0 ]]; then
+    msg_ok "${panel_count} auto-panelen klaar voor ${pve_name}"
+    return 0
+  fi
+
+  msg_warn "Auto-panelen niet klaar — log: ${seed_log}"
+  return 1
+}
+
+function configure_dashboard_proxmox_from_host() {
+  finish_dashboard_install
 }
 
 function install_dashboard_in_ct() {
@@ -184,10 +227,11 @@ function update_script() {
 
 start
 build_container
-configure_dashboard_proxmox_from_host
 pct set "$CTID" -tags homelab-dashboard 2>/dev/null || true
 description
+finish_dashboard_install || true
 
 clear
 msg_ok "Completed successfully!\n"
 echo -e "${GATEWAY}${BGN}http://${IP}:8765${CL}"
+echo -e "Login: admin / homelab123"
