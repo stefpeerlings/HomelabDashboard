@@ -18,18 +18,40 @@ CREDENTIALS_DIR="${HOMELAB_CREDENTIALS_DIR:-/root/.homelab-db/credentials}"
 HTTP_PORT="${HOMELAB_HTTP_PORT:-8765}"
 WS_PORT="${HOMELAB_WS_PORT:-8766}"
 UPDATE_MODE=false
+QUIET=false
+INSTALL_LOG="${HOMELAB_INSTALL_LOG:-/tmp/homelab-lxc-install.log}"
+
+if [[ "${HOMELAB_QUIET:-}" == "1" ]]; then
+  QUIET=true
+fi
 
 if [[ "${1:-}" == "--update" || "${1:-}" == "-u" ]]; then
   UPDATE_MODE=true
 fi
+
+step() {
+  if [[ "$QUIET" == true ]]; then
+    echo "$(date -Iseconds) $*" >>"$INSTALL_LOG"
+  else
+    echo "$@"
+  fi
+}
+
+run_quiet() {
+  if [[ "$QUIET" == true ]]; then
+    "$@" >>"$INSTALL_LOG" 2>&1
+  else
+    "$@"
+  fi
+}
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Dit script moet als root worden uitgevoerd (sudo bash lxc-install.sh)"
   exit 1
 fi
 
-echo "=== Homelab Dashboard LXC Installer ==="
-echo ""
+step "=== Homelab Dashboard LXC Installer ==="
+[[ "$QUIET" != true ]] && echo ""
 
 if [[ -f "homelab_dashboard.py" && -f "requirements.txt" ]]; then
   APP_DIR="$(pwd)"
@@ -37,24 +59,24 @@ fi
 
 clone_or_update_repo() {
   if [[ -d "$APP_DIR/.git" ]]; then
-    echo "Repository bijwerken..."
-    git -C "$APP_DIR" pull origin "$REPO_BRANCH"
+    step "Repository bijwerken..."
+    run_quiet git -C "$APP_DIR" pull origin "$REPO_BRANCH"
   else
-    echo "Repository clonen..."
+    step "Repository clonen..."
     mkdir -p "$APP_DIR"
-    git clone -b "$REPO_BRANCH" "$REPO_URL" "$APP_DIR"
+    run_quiet git clone -b "$REPO_BRANCH" "$REPO_URL" "$APP_DIR"
   fi
 }
 
 install_dependencies() {
-  echo "[1/6] Systeempackages installeren..."
+  step "[1/6] Systeempackages installeren..."
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -qq
-  apt-get install -y -qq python3 python3-venv python3-pip git curl openssh-client
+  run_quiet apt-get update -qq
+  run_quiet apt-get install -y -qq python3 python3-venv python3-pip git curl openssh-client
 }
 
 setup_venv() {
-  echo "[2/6] Python virtualenv voorbereiden..."
+  step "[2/6] Python virtualenv voorbereiden..."
   cd "$APP_DIR"
   if [[ -d ".venv" && ! -f ".venv/bin/activate" ]]; then
     rm -rf .venv
@@ -67,24 +89,20 @@ setup_venv() {
 }
 
 install_python_packages() {
-  echo "[3/6] Python dependencies installeren..."
-  pip install --upgrade pip -q
-  pip install -r requirements.txt -q
+  step "[3/6] Python dependencies installeren..."
+  run_quiet pip install --upgrade pip -q
+  run_quiet pip install -r requirements.txt -q
 }
 
 prepare_dirs() {
-  echo "[4/6] Mappen en credentials voorbereiden..."
+  step "[4/6] Mappen en credentials voorbereiden..."
   mkdir -p "$CREDENTIALS_DIR" /etc/homelab-dashboard
   chmod 700 "$CREDENTIALS_DIR"
 
   if [[ ! -f "$CREDENTIALS_DIR/service.json" ]]; then
     cp "$APP_DIR/config/service.json.example" "$CREDENTIALS_DIR/service.json"
     chmod 600 "$CREDENTIALS_DIR/service.json"
-    echo "⚠️  MariaDB nog niet geconfigureerd."
-    echo "    Op MariaDB-host:"
-    echo "      bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-database.sh)\" -- --server"
-    echo "    Op deze container (credentials + test + herstart):"
-    echo "      bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-database.sh)\""
+    step "MariaDB nog niet geconfigureerd (service.json aangemaakt)"
   fi
 
   if [[ ! -f "$CREDENTIALS_DIR/smtp.json" ]]; then
@@ -94,7 +112,7 @@ prepare_dirs() {
 }
 
 setup_ssh_dir() {
-  echo "[5/6] SSH-map voorbereiden..."
+  step "[5/6] SSH-map voorbereiden..."
   mkdir -p /root/.ssh
   chmod 700 /root/.ssh
   if [[ ! -f /root/.ssh/config ]]; then
@@ -110,7 +128,7 @@ EOF
 }
 
 setup_systemd() {
-  echo "[6/6] Systemd service configureren..."
+  step "[6/6] Systemd service configureren..."
   local ip
   ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
   local public_url="${HOMELAB_PUBLIC_URL:-http://${ip:-127.0.0.1}:${HTTP_PORT}/}"
@@ -164,6 +182,11 @@ else
 fi
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+
+if [[ "$QUIET" == true ]]; then
+  step "Klaar — dashboard op http://${IP:-<container-ip>}:${HTTP_PORT}/"
+  exit 0
+fi
 
 echo ""
 echo "✅ Klaar!"
