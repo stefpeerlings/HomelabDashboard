@@ -87,10 +87,16 @@ Wijzig dit meteen na de eerste login via **Account → Wachtwoord**.
 
 ## Update
 
-In de container:
+In de container (als root):
 
 ```bash
-bash /opt/homelab-dashboard/lxc-install.sh --update
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-install.sh)" -- --update
+```
+
+Vanaf je Proxmox host:
+
+```bash
+pct exec <CTID> -- bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-install.sh)" -- --update
 ```
 
 ## Projectstructuur

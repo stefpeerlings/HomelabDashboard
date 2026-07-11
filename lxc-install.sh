@@ -6,7 +6,7 @@
 #   bash <(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-install.sh)
 #
 # Update:
-#   bash lxc-install.sh --update
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-install.sh)" -- --update
 #
 # Externe MariaDB i.p.v. lokaal:
 #   HOMELAB_DB_MODE=remote bash lxc-install.sh
@@ -236,5 +236,5 @@ fi
 echo "Handige commando's:"
 echo "  systemctl status $SERVICE_NAME"
 echo "  journalctl -u $SERVICE_NAME -f"
-echo "  bash $0 --update"
+echo "  bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-install.sh)\" -- --update"
 echo ""
