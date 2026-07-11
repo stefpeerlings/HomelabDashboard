@@ -149,7 +149,8 @@ def build_status_command(settings: dict | None = None) -> list:
         "{t++; if(tolower($2)==\"running\") r++} END{printf \"LXC: %d/%d running\\n\", r+0, t+0}'"
     )
     backup_cmd = (
-        "if pgrep -f '[v]zdump' >/dev/null 2>&1; then echo 'Backup: vzdump bezig'; "
+        "if ps -eo args= 2>/dev/null | grep -E '^/usr/bin/perl -T /usr/bin/vzdump |^/usr/bin/vzdump ' "
+        "| grep -q .; then echo 'Backup: vzdump bezig'; "
         "else LAST=$(journalctl --no-pager -n 400 -o cat 2>/dev/null | "
         "grep -iE 'vzdump|backup job' | grep -iE 'finished|failed|error|TASK OK' | tail -1); "
         "if echo \"$LAST\" | grep -qiE 'fail|error'; then echo 'Backup: MISLUKT'; "
