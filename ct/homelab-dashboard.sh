@@ -48,14 +48,15 @@ function install_dashboard_in_ct() {
   local mode="${1:-}"
   local install_script="/tmp/homelab-dashboard-lxc-install.sh"
   local install_log="/var/log/homelab-dashboard-install-${CTID}.log"
-  local install_args=()
+  if [[ "$mode" == "--update" ]]; then
+    curl -fsSL "${RAW_BASE}/lxc-update.sh" -o "$install_script"
+  else
+    curl -fsSL "${RAW_BASE}/lxc-install.sh" -o "$install_script"
+  fi
+  pct push "$CTID" "$install_script" /tmp/homelab-update.sh
+  pct exec "$CTID" -- chmod +x /tmp/homelab-update.sh
 
-  [[ "$mode" == "--update" ]] && install_args=(--update)
-
-  curl -fsSL "${RAW_BASE}/lxc-install.sh" -o "$install_script"
-  pct push "$CTID" "$install_script" /tmp/lxc-install.sh
-
-  if ! HOMELAB_QUIET=1 pct exec "$CTID" -- bash /tmp/lxc-install.sh "${install_args[@]}" >>"$install_log" 2>&1; then
+  if ! HOMELAB_QUIET=1 pct exec "$CTID" -- bash /tmp/homelab-update.sh >>"$install_log" 2>&1; then
     msg_error "Installation failed (log: ${install_log})"
     tail -20 "$install_log" || true
     exit 1
