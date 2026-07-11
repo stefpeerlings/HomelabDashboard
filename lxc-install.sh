@@ -153,10 +153,14 @@ setup_systemd() {
   step "[7/7] Systemd service configureren..."
   local ip
   ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-  local public_url="${HOMELAB_PUBLIC_URL:-http://${ip:-127.0.0.1}:${HTTP_PORT}/}"
   local service_path="/etc/systemd/system/${SERVICE_NAME}.service"
   local after_targets="network-online.target"
   local wants_targets="network-online.target"
+  local public_env="Environment=HOMELAB_AUTO_PUBLIC_URL=1"
+
+  if [[ -n "${HOMELAB_PUBLIC_URL:-}" ]]; then
+    public_env="Environment=HOMELAB_PUBLIC_URL=${HOMELAB_PUBLIC_URL}"
+  fi
 
   if [[ "$DB_MODE" != "remote" ]]; then
     after_targets="network-online.target mariadb.service"
@@ -175,7 +179,8 @@ User=root
 WorkingDirectory=$APP_DIR
 Environment=HOMELAB_APP_ROOT=$APP_DIR
 Environment=HOMELAB_CREDENTIALS_DIR=$CREDENTIALS_DIR
-Environment=HOMELAB_PUBLIC_URL=$public_url
+Environment=HOMELAB_HTTP_PORT=$HTTP_PORT
+$public_env
 ExecStart=$APP_DIR/.venv/bin/python $APP_DIR/homelab_dashboard.py
 Restart=on-failure
 RestartSec=5
@@ -197,6 +202,7 @@ if [[ "$UPDATE_MODE" == true ]]; then
   clone_or_update_repo
   setup_venv
   install_python_packages
+  setup_systemd
   systemctl restart "$SERVICE_NAME"
 else
   install_dependencies

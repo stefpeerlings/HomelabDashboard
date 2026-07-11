@@ -130,7 +130,8 @@ homelab-dashboard/
 |-----------|---------|--------------|
 | `HOMELAB_APP_ROOT` | `/opt/homelab-dashboard` | Applicatiemap |
 | `HOMELAB_CREDENTIALS_DIR` | `/root/.homelab-db/credentials` | Secrets |
-| `HOMELAB_PUBLIC_URL` | auto | URL voor e-mail links |
+| `HOMELAB_PUBLIC_URL` | auto-detect | Vaste URL (zet `HOMELAB_AUTO_PUBLIC_URL=0`) |
+| `HOMELAB_AUTO_PUBLIC_URL` | `1` | IP automatisch via `hostname -I` |
 | `HOMELAB_STATIC_DIR` | `$APP_ROOT/static` | Statische bestanden |
 
 ## SSH-keys

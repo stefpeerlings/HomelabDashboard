@@ -60,6 +60,37 @@ SMTP_CONFIG_PATH = CREDENTIALS_DIR / "smtp.json"
 STATIC_DIR = _resolve_static_dir(APP_ROOT)
 PUBLIC_DASHBOARD_URL = os.environ.get("HOMELAB_PUBLIC_URL", "").strip()
 SESSION_COOKIE = "homelab_session"
+
+
+def resolve_public_dashboard_url() -> str:
+    """Bepaal dashboard-URL; standaard automatisch via container-IP (DHCP-vriendelijk)."""
+    auto = os.environ.get("HOMELAB_AUTO_PUBLIC_URL", "1").strip().lower() not in ("0", "false", "no")
+    env_url = os.environ.get("HOMELAB_PUBLIC_URL", "").strip()
+    if env_url and not auto:
+        return env_url if env_url.endswith("/") else f"{env_url}/"
+    try:
+        ip = subprocess.check_output(["hostname", "-I"], text=True, timeout=3).strip().split()[0]
+        if ip:
+            port = os.environ.get("HOMELAB_HTTP_PORT", "8765")
+            return f"http://{ip}:{port}/"
+    except Exception:
+        pass
+    if env_url:
+        return env_url if env_url.endswith("/") else f"{env_url}/"
+    return "http://127.0.0.1:8765/"
+
+
+HOMELAB_STATUS_COMMAND = [
+    "bash",
+    "-lc",
+    (
+        "IP=$(hostname -I 2>/dev/null | awk '{print $1}'); "
+        'echo "Dashboard: http://${IP:-onbekend}:8765"; '
+        "systemctl is-active --quiet homelab-dashboard && echo 'Service: active' || echo 'Service: inactive'; "
+        "systemctl is-active --quiet mariadb 2>/dev/null && echo 'MariaDB: active' || true; "
+        "uptime -p 2>/dev/null || uptime"
+    ),
+]
 SESSION_DAYS = 14
 RESET_TOKEN_HOURS = 2
 _db_lock = threading.Lock()
@@ -86,7 +117,7 @@ DEFAULT_CONFIG = {
     "ws_port": 8766,
     "status": {
         "label": "Status",
-        "command": ["/usr/local/bin/pbs-manage.sh", "check"],
+        "command": HOMELAB_STATUS_COMMAND,
         "interval_seconds": 5,
     },
     "panels": [],
@@ -253,7 +284,7 @@ def ensure_smtp_template() -> None:
             "password": "VUL_AAN",
             "from": "Homelab Dashboard <dashboard@home-labe.com>",
             "use_tls": True,
-            "dashboard_url": PUBLIC_DASHBOARD_URL or "http://127.0.0.1:8765/",
+            "dashboard_url": resolve_public_dashboard_url(),
             "note": "Zet enabled op true en vul SMTP-gegevens in voor wachtwoord-reset mails",
         },
     )
@@ -304,6 +335,15 @@ def ensure_dashboard_schema_updates(conn) -> None:
             conn,
             "ALTER TABLE dashboard_users ADD COLUMN session_version INT NOT NULL DEFAULT 1",
         )
+    row = _fetchone(conn, "SELECT setting_value FROM settings WHERE setting_key='status_command'")
+    if row:
+        status_cmd = row.get("setting_value") or ""
+        if "pbs-manage.sh" in status_cmd or "pbs-monitor" in status_cmd:
+            _execute(
+                conn,
+                "UPDATE settings SET setting_value=%s WHERE setting_key='status_command'",
+                (json.dumps(DEFAULT_CONFIG["status"]["command"]),),
+            )
 
 
 def cleanup_reset_tokens(conn) -> None:
@@ -705,7 +745,7 @@ def ensure_dashboard_users() -> None:
                 {
                     "user": username,
                     "password": password_hint if isinstance(password_hint, str) else "homelab123",
-                    "url": PUBLIC_DASHBOARD_URL or "http://127.0.0.1:8765/",
+                    "url": resolve_public_dashboard_url(),
                     "note": "Dashboard login — beheer gebruikers via Account menu",
                 },
             )
@@ -5881,7 +5921,7 @@ def main():
     ws_thread.start()
 
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f"Dashboard op http://{host}:{port}")
+    print(f"Dashboard op {resolve_public_dashboard_url().rstrip('/')}")
     db_cfg = load_db_config()
     print(f"Database: MariaDB {db_cfg['host']}:{db_cfg['port']}/{db_cfg['database']}")
     httpd.serve_forever()
