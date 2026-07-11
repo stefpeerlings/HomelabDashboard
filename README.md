@@ -1,5 +1,11 @@
 # Homelab Dashboard
 
+<div align="right">
+
+[![Release](https://img.shields.io/github/v/release/stefpeerlings/HomelabDashboard?label=release&style=for-the-badge)](https://github.com/stefpeerlings/HomelabDashboard/releases/latest)
+
+</div>
+
 Live log monitoring en browser-SSH voor Proxmox VE homelabs.  
 Logs van Proxmox nodes, LXC containers, Docker, PBS en eigen commando's — met gebruikersbeheer en MariaDB-opslag.
 
