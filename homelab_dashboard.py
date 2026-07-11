@@ -80,17 +80,24 @@ def resolve_public_dashboard_url() -> str:
     return "http://127.0.0.1:8765/"
 
 
-HOMELAB_STATUS_COMMAND = [
-    "bash",
-    "-lc",
-    (
-        "IP=$(hostname -I 2>/dev/null | awk '{print $1}'); "
-        'echo "Dashboard: http://${IP:-onbekend}:8765"; '
-        "systemctl is-active --quiet homelab-dashboard && echo 'Service: active' || echo 'Service: inactive'; "
-        "systemctl is-active --quiet mariadb 2>/dev/null && echo 'MariaDB: active' || true; "
-        "uptime -p 2>/dev/null || uptime"
-    ),
-]
+def build_status_command(settings: dict | None = None) -> list:
+    settings = settings or {}
+    proxmox_host = (settings.get("status_proxmox_host") or "").strip()
+    parts = [
+        "IP=$(hostname -I 2>/dev/null | awk '{print $1}')",
+        'echo "Dashboard: http://${IP:-onbekend}:8765"',
+        "systemctl is-active --quiet homelab-dashboard && echo 'Service: active' || echo 'Service: inactive'",
+        "systemctl is-active --quiet mariadb 2>/dev/null && echo 'MariaDB: active' || true",
+    ]
+    if proxmox_host:
+        host_q = shlex.quote(proxmox_host)
+        parts.append(f"echo -n 'Proxmox ({proxmox_host}): '")
+        parts.append(
+            f"if curl -sk --connect-timeout 4 https://{host_q}:8006/ >/dev/null 2>&1; "
+            f"then echo online; else echo offline; fi"
+        )
+    parts.append("uptime -p 2>/dev/null || uptime")
+    return ["bash", "-lc", "; ".join(parts)]
 SESSION_DAYS = 14
 RESET_TOKEN_HOURS = 2
 _db_lock = threading.Lock()
@@ -117,7 +124,7 @@ DEFAULT_CONFIG = {
     "ws_port": 8766,
     "status": {
         "label": "Status",
-        "command": HOMELAB_STATUS_COMMAND,
+        "command": build_status_command(),
         "interval_seconds": 5,
     },
     "panels": [],
@@ -341,9 +348,21 @@ def ensure_dashboard_schema_updates(conn) -> None:
         if "pbs-manage.sh" in status_cmd or "pbs-monitor" in status_cmd:
             _execute(
                 conn,
-                "UPDATE settings SET setting_value=%s WHERE setting_key='status_command'",
-                (json.dumps(DEFAULT_CONFIG["status"]["command"]),),
+                "INSERT INTO settings (setting_key, setting_value) VALUES ('status_proxmox_host', '10.0.30.3') "
+                "ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",
             )
+            rebuilt = build_status_command({"status_proxmox_host": "10.0.30.3"})
+            _execute(
+                conn,
+                "UPDATE settings SET setting_value=%s WHERE setting_key='status_command'",
+                (json.dumps(rebuilt),),
+            )
+    if not _fetchone(conn, "SELECT setting_value FROM settings WHERE setting_key='status_proxmox_host'"):
+        _execute(
+            conn,
+            "INSERT INTO settings (setting_key, setting_value) VALUES ('status_proxmox_host', '10.0.30.3') "
+            "ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",
+        )
 
 
 def cleanup_reset_tokens(conn) -> None:
@@ -1026,7 +1045,8 @@ def _seed_default_settings(conn) -> None:
         "port": str(DEFAULT_CONFIG["port"]),
         "ws_port": str(DEFAULT_CONFIG["ws_port"]),
         "status_label": DEFAULT_CONFIG["status"]["label"],
-        "status_command": json.dumps(DEFAULT_CONFIG["status"]["command"]),
+        "status_proxmox_host": "10.0.30.3",
+        "status_command": json.dumps(build_status_command({"status_proxmox_host": "10.0.30.3"})),
         "status_interval_seconds": str(DEFAULT_CONFIG["status"]["interval_seconds"]),
         "log_categories": json.dumps(DEFAULT_LOG_CATEGORIES),
     }
@@ -1047,8 +1067,13 @@ def write_config_to_db(conn, config: dict) -> None:
         "port": str(config.get("port", DEFAULT_CONFIG["port"])),
         "ws_port": str(config.get("ws_port", DEFAULT_CONFIG["ws_port"])),
         "status_label": config.get("status", {}).get("label", DEFAULT_CONFIG["status"]["label"]),
+        "status_proxmox_host": config.get("status", {}).get("proxmox_host", ""),
         "status_command": json.dumps(
-            config.get("status", {}).get("command", DEFAULT_CONFIG["status"]["command"])
+            build_status_command(
+                {
+                    "status_proxmox_host": config.get("status", {}).get("proxmox_host", ""),
+                }
+            )
         ),
         "status_interval_seconds": str(
             config.get("status", {}).get("interval_seconds", DEFAULT_CONFIG["status"]["interval_seconds"])
@@ -1128,11 +1153,8 @@ def read_config_from_db(conn) -> dict:
         conn.commit()
         return config
 
-    status_command = settings.get("status_command")
-    try:
-        status_command_list = json.loads(status_command) if status_command else DEFAULT_CONFIG["status"]["command"]
-    except json.JSONDecodeError:
-        status_command_list = DEFAULT_CONFIG["status"]["command"]
+    proxmox_host = settings.get("status_proxmox_host", "")
+    status_command_list = build_status_command(settings)
 
     panels = [
         _row_panel(row)
@@ -1156,6 +1178,7 @@ def read_config_from_db(conn) -> dict:
         "ws_port": int(settings.get("ws_port", DEFAULT_CONFIG["ws_port"])),
         "status": {
             "label": settings.get("status_label", DEFAULT_CONFIG["status"]["label"]),
+            "proxmox_host": proxmox_host,
             "command": status_command_list,
             "interval_seconds": int(
                 settings.get("status_interval_seconds", DEFAULT_CONFIG["status"]["interval_seconds"])
@@ -1165,6 +1188,53 @@ def read_config_from_db(conn) -> dict:
         "panels": panels,
         "ssh_hosts": ssh_hosts,
     }
+
+
+def update_status_settings(config: dict, payload: dict) -> dict:
+    label = str(payload.get("label", "")).strip() or DEFAULT_CONFIG["status"]["label"]
+    proxmox_host = str(payload.get("proxmox_host", "")).strip()
+    try:
+        interval = int(payload.get("interval_seconds", DEFAULT_CONFIG["status"]["interval_seconds"]))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Ongeldig interval") from exc
+    if interval < 2 or interval > 300:
+        raise ValueError("Interval moet tussen 2 en 300 seconden zijn")
+    if proxmox_host and not re.fullmatch(r"[a-zA-Z0-9._-]+", proxmox_host):
+        raise ValueError("Ongeldig Proxmox host/IP")
+
+    status_settings = {
+        "status_label": label,
+        "status_proxmox_host": proxmox_host,
+        "status_interval_seconds": str(interval),
+    }
+    status_settings["status_command"] = json.dumps(build_status_command(status_settings))
+
+    with _db_lock:
+        conn = get_db_connection()
+        try:
+            for key, value in status_settings.items():
+                _execute(
+                    conn,
+                    """
+                    INSERT INTO settings (setting_key, setting_value) VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)
+                    """,
+                    (key, value),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+
+    config.setdefault("status", {})
+    config["status"].update(
+        {
+            "label": label,
+            "proxmox_host": proxmox_host,
+            "command": json.loads(status_settings["status_command"]),
+            "interval_seconds": interval,
+        }
+    )
+    return config["status"]
 
 
 def _read_sqlite_config() -> dict | None:
@@ -2228,6 +2298,7 @@ def public_config(config: dict) -> dict:
         "ws_port": int(config.get("ws_port", DEFAULT_CONFIG["ws_port"])),
         "status": {
             "label": config.get("status", {}).get("label", "Status"),
+            "proxmox_host": config.get("status", {}).get("proxmox_host", ""),
             "interval_seconds": config.get("status", {}).get("interval_seconds", 5),
         },
         "panels": [
@@ -2964,7 +3035,10 @@ HTML = r"""<!DOCTYPE html>
                 <span class="status-dot busy" id="status-dot"></span>
                 <span id="status-label">Status</span>
               </div>
-              <span class="status-updated" id="updated">--</span>
+              <div class="panel-actions">
+                <button class="btn btn-sm" id="status-edit-btn" type="button" style="display:none">Instellen</button>
+                <span class="status-updated" id="updated">--</span>
+              </div>
             </div>
             <pre id="status" class="status-card busy">Status laden...</pre>
           </section>
@@ -3242,6 +3316,39 @@ HTML = r"""<!DOCTYPE html>
         <div class="modal-actions">
           <button class="btn" id="cat-edit-cancel" type="button">Annuleren</button>
           <button class="btn btn-primary" id="cat-edit-save" type="button">Opslaan</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="status-edit-modal">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">Statusbalk instellen</div>
+        <button class="btn btn-sm" id="status-edit-close" type="button">Sluiten</button>
+      </div>
+      <div class="modal-body">
+        <form id="form-status-edit" autocomplete="off">
+          <div class="field">
+            <label>Titel</label>
+            <input name="label" id="status-edit-label" placeholder="Status" required>
+          </div>
+          <div class="field">
+            <label>Proxmox host / IP</label>
+            <input name="proxmox_host" id="status-edit-proxmox" placeholder="10.0.30.3">
+            <small>Controleert of Proxmox webinterface (poort 8006) bereikbaar is.</small>
+          </div>
+          <div class="field">
+            <label>Verversing (seconden)</label>
+            <input name="interval_seconds" id="status-edit-interval" type="number" min="2" max="300" value="5">
+          </div>
+        </form>
+        <div class="form-error" id="status-edit-error"></div>
+      </div>
+      <div class="modal-footer">
+        <div class="modal-actions">
+          <button class="btn" id="status-edit-cancel" type="button">Annuleren</button>
+          <button class="btn btn-primary" id="status-edit-save" type="button">Opslaan</button>
         </div>
       </div>
     </div>
@@ -3534,6 +3641,10 @@ HTML = r"""<!DOCTYPE html>
     const panelEditErrorEl = document.getElementById("panel-edit-error");
     const formPanelEditEl = document.getElementById("form-panel-edit");
     const panelEditCategoryEl = document.getElementById("panel-edit-category");
+    const statusEditBtnEl = document.getElementById("status-edit-btn");
+    const statusEditModalEl = document.getElementById("status-edit-modal");
+    const statusEditErrorEl = document.getElementById("status-edit-error");
+    const formStatusEditEl = document.getElementById("form-status-edit");
     const catAddModalEl = document.getElementById("cat-add-modal");
     const catAddErrorEl = document.getElementById("cat-add-error");
     const formCatAddEl = document.getElementById("form-cat-add");
@@ -3616,6 +3727,7 @@ HTML = r"""<!DOCTYPE html>
       const loggedIn = !enabled || !!authState.logged_in;
       if (btnAddPanelEl) btnAddPanelEl.style.display = loggedIn && p.manage_panels ? "" : "none";
       if (btnCatAddEl) btnCatAddEl.style.display = loggedIn && p.manage_panels ? "" : "none";
+      if (statusEditBtnEl) statusEditBtnEl.style.display = loggedIn && p.manage_panels ? "" : "none";
       if (btnAddSshEl) btnAddSshEl.style.display = loggedIn && p.manage_ssh ? "" : "none";
       if (sshTabEl) sshTabEl.style.display = loggedIn && p.use_ssh ? "" : "none";
       if (accountUsersBtnEl) accountUsersBtnEl.hidden = !(loggedIn && p.manage_users);
@@ -5079,6 +5191,53 @@ HTML = r"""<!DOCTYPE html>
       if (panelEditErrorEl) panelEditErrorEl.textContent = "";
     }
 
+    function openEditStatusModal() {
+      if (!formStatusEditEl) return;
+      document.getElementById("status-edit-label").value = config.status?.label || "Status";
+      document.getElementById("status-edit-proxmox").value = config.status?.proxmox_host || "";
+      document.getElementById("status-edit-interval").value = String(config.status?.interval_seconds || 5);
+      if (statusEditErrorEl) statusEditErrorEl.textContent = "";
+      statusEditModalEl?.classList.add("open");
+    }
+
+    function closeEditStatusModal() {
+      statusEditModalEl?.classList.remove("open");
+      if (statusEditErrorEl) statusEditErrorEl.textContent = "";
+    }
+
+    async function saveStatusEdit() {
+      if (!formStatusEditEl) return;
+      if (statusEditErrorEl) statusEditErrorEl.textContent = "";
+      const payload = Object.fromEntries(new FormData(formStatusEditEl).entries());
+      try {
+        const res = await apiFetch("/api/edit/status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Opslaan mislukt");
+        config.status = data.status;
+        statusLabelEl.textContent = config.status?.label || "Status";
+        const interval = (config.status?.interval_seconds || 5) * 1000;
+        if (statusTimer) clearInterval(statusTimer);
+        statusTimer = setInterval(refreshStatus, interval);
+        intervalEl.textContent = `${config.status?.interval_seconds || 5}s`;
+        closeEditStatusModal();
+        refreshStatus();
+      } catch (e) {
+        if (statusEditErrorEl) statusEditErrorEl.textContent = String(e.message || e);
+      }
+    }
+
+    statusEditBtnEl?.addEventListener("click", openEditStatusModal);
+    document.getElementById("status-edit-close")?.addEventListener("click", closeEditStatusModal);
+    document.getElementById("status-edit-cancel")?.addEventListener("click", closeEditStatusModal);
+    document.getElementById("status-edit-save")?.addEventListener("click", saveStatusEdit);
+    statusEditModalEl?.addEventListener("click", (e) => {
+      if (e.target === statusEditModalEl) closeEditStatusModal();
+    });
+
     async function savePanelEdit() {
       if (!formPanelEditEl) return;
       if (panelEditErrorEl) panelEditErrorEl.textContent = "";
@@ -5889,6 +6048,16 @@ class Handler(BaseHTTPRequestHandler):
                 cat_id = str(payload.get("id", "")).strip()
                 category = update_category_entry(config, cat_id, payload)
                 self._send_json({"ok": True, "id": cat_id, "category": category})
+                return
+            if path == "/api/edit/status":
+                if self._require_role("operator") is False:
+                    return
+                status = update_status_settings(config, payload)
+                self._send_json({"ok": True, "status": {
+                    "label": status.get("label", "Status"),
+                    "proxmox_host": status.get("proxmox_host", ""),
+                    "interval_seconds": status.get("interval_seconds", 5),
+                }})
                 return
             if path == "/api/sync/panels":
                 if self._require_role("operator") is False:
