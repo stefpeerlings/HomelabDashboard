@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.log
+.DS_Store
+data/
+credentials/
+config/service.json
+config/smtp.json
+config/dashboard-*.json
