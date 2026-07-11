@@ -1597,6 +1597,9 @@ def parse_pct_list_output(output: str) -> list[dict]:
 
 
 def is_local_proxmox_host(hostname: str) -> bool:
+    """Alleen lokaal als dit proces op een Proxmox-node draait (niet vanuit een aparte CT)."""
+    if not os.path.isdir("/etc/pve"):
+        return False
     return hostname.lower().strip() in LOCAL_PROXMOX_HOSTS
 
 
