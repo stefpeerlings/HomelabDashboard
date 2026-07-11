@@ -48,7 +48,6 @@ function install_dashboard_in_ct() {
   local install_script="/tmp/homelab-dashboard-lxc-install.sh"
   local install_log="/var/log/homelab-dashboard-install-${CTID}.log"
 
-  msg_info "Installing ${APP} in CT ${CTID}"
   curl -fsSL "${RAW_BASE}/lxc-install.sh" -o "$install_script"
   pct push "$CTID" "$install_script" /tmp/lxc-install.sh
 
@@ -60,7 +59,24 @@ function install_dashboard_in_ct() {
 
   pct set "$CTID" -tags homelab-dashboard
   rm -f "$install_script"
-  msg_ok "Installed ${APP}"
+}
+
+eval "$(declare -f build_container | sed '1s/^build_container/_homelab_build_container_orig/')"
+
+build_container() {
+  curl() {
+    local url=""
+    for arg in "$@"; do
+      [[ "$arg" == http* ]] && url="$arg"
+    done
+    if [[ "$url" == *"community-scripts/ProxmoxVE/main/install/"* ]]; then
+      command curl -fsSL "${RAW_BASE}/install/pve-container-install.sh"
+      return $?
+    fi
+    command curl "$@"
+  }
+  _homelab_build_container_orig
+  unset -f curl
 }
 
 function header_info {
@@ -129,7 +145,7 @@ function update_script() {
 
 start
 build_container
-install_dashboard_in_ct
+pct set "$CTID" -tags homelab-dashboard 2>/dev/null || true
 description
 
 clear
