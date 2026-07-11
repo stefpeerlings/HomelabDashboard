@@ -34,24 +34,8 @@ fetch_repo_file() {
   return 1
 }
 
-homelab_default_dns() {
-  local ns="${HOMELAB_DNS:-}"
-  if [[ -n "$ns" ]]; then
-    echo "$ns"
-    return
-  fi
-  if [[ -r /etc/resolv.conf ]]; then
-    ns="$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf)"
-    case "$ns" in
-      127.*|"") ns="" ;;
-    esac
-  fi
-  echo "${ns:-1.1.1.1}"
-}
-
 APP="HomelabDashboard"
 var_hostname="${var_hostname:-homelab-dashboard}"
-var_ns="${var_ns:-$(homelab_default_dns)}"
 var_cpu="${var_cpu:-2}"
 var_ram="${var_ram:-1024}"
 var_disk="${var_disk:-4}"
@@ -113,7 +97,7 @@ function default_settings() {
   DISABLEIP6="no"
   MTU=""
   SD=""
-  NS="-nameserver=${var_ns}"
+  NS=""
   MAC=""
   VLAN=""
   SSH="no"
