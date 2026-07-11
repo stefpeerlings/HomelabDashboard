@@ -238,6 +238,11 @@ echo "Credentials: $CREDENTIALS_DIR"
 echo ""
 echo "Standaard login (eerste start): admin / homelab123"
 echo ""
+if [[ -f /root/.ssh/id_ed25519_default.pub ]]; then
+  echo "Statusbalk SSH (voeg toe op je Proxmox-node):"
+  echo "  $(cat /root/.ssh/id_ed25519_default.pub)"
+  echo ""
+fi
 if [[ "$DB_MODE" == "remote" ]]; then
   echo "Externe MariaDB koppelen:"
   echo "  bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-database.sh)\""
