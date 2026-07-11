@@ -44,23 +44,18 @@ var_version="${var_version:-13}"
 var_arm64="${var_arm64:-yes}"
 var_unprivileged="${var_unprivileged:-1}"
 
-POST_INSTALL="$(mktemp /tmp/homelab-dashboard-post-install.XXXXXX.sh)"
-trap 'rm -f "$POST_INSTALL"' EXIT
+function install_dashboard_in_ct() {
+  local action="${1:-installeren}"
+  local install_script="/tmp/homelab-dashboard-lxc-install.sh"
 
-cat >"$POST_INSTALL" <<HOOK_EOF
-#!/usr/bin/env bash
-set -euo pipefail
-
-INSTALL_SCRIPT="/tmp/homelab-dashboard-lxc-install.sh"
-curl -fsSL "${RAW_BASE}/lxc-install.sh" -o "\$INSTALL_SCRIPT"
-pct push "\$CTID" "\$INSTALL_SCRIPT" /tmp/lxc-install.sh
-pct exec "\$CTID" -- bash /tmp/lxc-install.sh
-pct set "\$CTID" -tags homelab-dashboard
-rm -f "\$INSTALL_SCRIPT"
-HOOK_EOF
-
-chmod +x "$POST_INSTALL"
-var_post_install="$POST_INSTALL"
+  msg_info "Homelab Dashboard ${action} in container ${CTID}..."
+  curl -fsSL "${RAW_BASE}/lxc-install.sh" -o "$install_script"
+  pct push "$CTID" "$install_script" /tmp/lxc-install.sh
+  pct exec "$CTID" -- bash /tmp/lxc-install.sh
+  pct set "$CTID" -tags homelab-dashboard
+  rm -f "$install_script"
+  msg_ok "Homelab Dashboard ${action} voltooid in container ${CTID}"
+}
 
 function header_info {
   clear
@@ -121,8 +116,7 @@ function update_script() {
     exit
   fi
 
-  msg_info "Updating ${APP}"
-  bash "$POST_INSTALL"
+  install_dashboard_in_ct "bijwerken"
   msg_ok "Updated ${APP}"
   msg_ok "Updated successfully!"
   exit
@@ -130,6 +124,7 @@ function update_script() {
 
 start
 build_container
+install_dashboard_in_ct
 description
 
 msg_ok "Completed successfully!\n"
