@@ -23,35 +23,35 @@ Logs van Proxmox nodes, LXC containers, Docker, PBS en eigen commando's — met 
 Panels, SSH-hosts, categorieën en gebruikers staan in **MariaDB**.  
 Die database hoort **niet** in de dashboard-container zelf — alleen een netwerkverbinding ernaartoe.
 
-### Nieuw opzetten
+### Alles-in-één (aanbevolen)
 
-**1. Op je MariaDB-server** (eenmalig):
+**Op de dashboard-container** — credentials, verbindingstest en service-herstart in één stap:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-mariadb.sh -o /tmp/setup-mariadb.sh
-bash /tmp/setup-mariadb.sh
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-database.sh)"
 ```
 
-Of handmatig via `scripts/setup-mariadb.sql` (vervang `CHANGE_ME` door een sterk wachtwoord).
+Het script detecteert automatisch dat het op de dashboard-container draait, vraagt host/wachtwoord, schrijft `service.json`, test de verbinding en herstart het dashboard.
 
-**2. Op de dashboard-container** — credentials invullen:
+**Nog geen database?** Eerst op je MariaDB-server/LXC:
 
 ```bash
-bash /opt/homelab-dashboard/scripts/setup-credentials.sh
+bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-database.sh)" -- --server
 ```
 
-Dit schrijft `/root/.homelab-db/credentials/service.json`.
+Daarna de dashboard-link hierboven opnieuw uitvoeren.
 
-**3. Verbinding controleren:**
+**Non-interactief** (bestaande database, bijv. na LXC-install):
 
 ```bash
-bash /opt/homelab-dashboard/scripts/test-db-connection.sh
+HOMELAB_DB_HOST=10.0.10.17 HOMELAB_DB_PASS='jouw-wachtwoord' \
+  bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-database.sh)" -- --client
 ```
 
 ### Al een database?
 
 Draait `homelab_dashboard` al op een MariaDB-server die je elders beheert?  
-Dan hoef je geen data te migreren: vul op de nieuwe dashboard-container alleen `service.json` in met dezelfde host, gebruiker en database. Alles staat dan meteen klaar.
+Dan hoef je geen data te migreren — alleen de dashboard-link hierboven (of de non-interactieve variant met bestaande gegevens).
 
 ### Eerste start van de app
 
@@ -107,9 +107,10 @@ homelab-dashboard/
 ├── ct/homelab-dashboard.sh # Proxmox community-scripts installer
 ├── config/                 # Voorbeeld-configs (geen secrets)
 └── scripts/
+    ├── setup-database.sh      # Alles-in-één (aanbevolen)
     ├── setup-mariadb.sh       # Database aanmaken (op MariaDB-host)
     ├── setup-mariadb.sql
-    ├── setup-credentials.sh   # service.json op dashboard
+    ├── setup-credentials.sh   # Alleen service.json
     └── test-db-connection.sh
 ```
 
