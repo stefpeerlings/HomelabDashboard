@@ -44,10 +44,42 @@ var_version="${var_version:-13}"
 var_arm64="${var_arm64:-yes}"
 var_unprivileged="${var_unprivileged:-1}"
 
+function configure_dashboard_proxmox_from_host() {
+  local ctid="${CTID:-}"
+  [[ -n "$ctid" ]] || return 0
+
+  local pve_name pve_ip proxmox_target
+  pve_name="$(hostname -s 2>/dev/null || hostname)"
+  pve_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  proxmox_target="${pve_ip:-$pve_name}"
+
+  local pubkey
+  pubkey="$(pct exec "$ctid" -- cat /root/.ssh/id_ed25519_default.pub 2>/dev/null || true)"
+  if [[ -n "$pubkey" ]]; then
+    mkdir -p /root/.ssh
+    chmod 700 /root/.ssh
+    touch /root/.ssh/authorized_keys
+    chmod 600 /root/.ssh/authorized_keys
+    grep -qF "$pubkey" /root/.ssh/authorized_keys 2>/dev/null || echo "$pubkey" >> /root/.ssh/authorized_keys
+  fi
+
+  pct exec "$ctid" -- env \
+    HOMELAB_PROXMOX_HOST="$proxmox_target" \
+    HOMELAB_NODE_NAME="$pve_name" \
+    HOMELAB_APP_ROOT=/opt/homelab-dashboard \
+    bash /opt/homelab-dashboard/scripts/seed-proxmox-node.sh \
+    >>"/var/log/homelab-dashboard-seed-${ctid}.log" 2>&1 || true
+}
+
 function install_dashboard_in_ct() {
   local mode="${1:-}"
   local install_script="/tmp/homelab-dashboard-lxc-install.sh"
   local install_log="/var/log/homelab-dashboard-install-${CTID}.log"
+  local pve_name pve_ip proxmox_target
+  pve_name="$(hostname -s 2>/dev/null || hostname)"
+  pve_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  proxmox_target="${pve_ip:-$pve_name}"
+
   if [[ "$mode" == "--update" ]]; then
     curl -fsSL "${RAW_BASE}/lxc-update.sh" -o "$install_script"
   else
@@ -56,12 +88,14 @@ function install_dashboard_in_ct() {
   pct push "$CTID" "$install_script" /tmp/homelab-update.sh
   pct exec "$CTID" -- chmod +x /tmp/homelab-update.sh
 
-  if ! HOMELAB_QUIET=1 pct exec "$CTID" -- bash /tmp/homelab-update.sh >>"$install_log" 2>&1; then
+  if ! HOMELAB_QUIET=1 HOMELAB_PROXMOX_HOST="$proxmox_target" HOMELAB_NODE_NAME="$pve_name" \
+    pct exec "$CTID" -- bash /tmp/homelab-update.sh >>"$install_log" 2>&1; then
     msg_error "Installation failed (log: ${install_log})"
     tail -20 "$install_log" || true
     exit 1
   fi
 
+  configure_dashboard_proxmox_from_host
   pct set "$CTID" -tags homelab-dashboard
   rm -f "$install_script"
 }
@@ -150,6 +184,7 @@ function update_script() {
 
 start
 build_container
+configure_dashboard_proxmox_from_host
 pct set "$CTID" -tags homelab-dashboard 2>/dev/null || true
 description
 

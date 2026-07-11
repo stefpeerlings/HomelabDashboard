@@ -1373,6 +1373,10 @@ def update_status_settings(config: dict, payload: dict) -> dict:
             "interval_seconds": interval,
         }
     )
+    try:
+        sync_log_panels(config)
+    except Exception as exc:
+        print(f"Panel sync na status-wijziging overgeslagen: {exc}")
     return config["status"]
 
 
@@ -1542,6 +1546,57 @@ def build_journalctl_command(units: list[str]) -> list[str]:
         command.extend(["-u", name])
     command.extend(["-f", "--no-pager", "-n", "50", "-o", "short-iso"])
     return command
+
+
+def resolve_proxmox_target(config: dict | None = None) -> tuple[dict | None, str, str]:
+    """Bepaal Proxmox-verbinding uit status-instellingen of lokale PVE-node."""
+    config = config or {}
+    status = config.get("status") or {}
+    proxmox_host = (status.get("proxmox_host") or "").strip()
+    node_name = (status.get("node_name") or "").strip()
+
+    if not proxmox_host and os.path.isdir("/etc/pve"):
+        try:
+            proxmox_host = subprocess.check_output(["hostname", "-s"], text=True, timeout=3).strip()
+        except Exception:
+            proxmox_host = "localhost"
+
+    if not proxmox_host:
+        return None, node_name, ""
+
+    try:
+        conn = resolve_ssh_target(proxmox_host)
+    except (ValueError, OSError):
+        return None, node_name, proxmox_host
+
+    label = node_name or proxmox_host
+    if not node_name and conn.get("local"):
+        try:
+            label = subprocess.check_output(["hostname", "-s"], text=True, timeout=3).strip() or proxmox_host
+        except Exception:
+            label = proxmox_host
+    return conn, label, proxmox_host
+
+
+def journalctl_command_for_conn(conn: dict, units: list[str]) -> list[str]:
+    if conn.get("local"):
+        return build_journalctl_command(units)
+    journal_parts = ["journalctl"]
+    for unit in units:
+        name = unit if unit.endswith(".service") else f"{unit}.service"
+        journal_parts.extend(["-u", shlex.quote(name)])
+    journal_parts.extend(["-f", "--no-pager", "-n", "50", "-o", "short-iso"])
+    return proxmox_ssh_command(conn, " ".join(journal_parts))
+
+
+def vzdump_log_command(conn: dict) -> list[str]:
+    pipeline = (
+        "journalctl -f --no-pager -o short-iso 2>/dev/null | "
+        "grep --line-buffered -iE \"vzdump|pbs-vault|backup:|backup-\""
+    )
+    if conn.get("local"):
+        return ["bash", "-c", pipeline]
+    return proxmox_ssh_command(conn, pipeline)
 
 
 def parse_systemctl_units(output: str) -> list[dict]:
@@ -1827,7 +1882,14 @@ def list_proxmox_systemd_units(conn: dict, ctid: str | None = None) -> list[dict
     return parse_systemctl_units(proc.stdout)
 
 
-def container_log_command(ctid: str) -> list[str]:
+def container_log_command(ctid: str, conn: dict | None = None) -> list[str]:
+    if not str(ctid).isdigit():
+        raise ValueError("Ongeldig CT ID")
+    remote = f"pct exec {ctid} -- journalctl -f --no-pager -n 40 -o short-iso"
+    if conn:
+        if conn.get("local"):
+            return ["bash", "-c", remote]
+        return proxmox_ssh_command(conn, remote)
     return [
         "pct", "exec", ctid, "--",
         "journalctl", "-f", "--no-pager", "-n", "40", "-o", "short-iso",
@@ -1919,114 +1981,127 @@ def docker_log_command(container: str, conn: dict | None = None, *, tail: int = 
     return ["docker", "logs", "-f", "--tail", str(int(tail)), "--timestamps", name]
 
 
-def pbs_remote_journalctl(units: list[str]) -> list[str]:
+def pbs_remote_journalctl(units: list[str], pbs_host: str = "") -> list[str] | None:
+    pbs_host = (pbs_host or "").strip()
+    if not pbs_host or not status_host_valid(pbs_host):
+        return None
+    try:
+        conn = resolve_ssh_target(pbs_host)
+    except (ValueError, OSError):
+        return None
     journal_parts = ["journalctl"]
     for unit in units:
         name = unit if unit.endswith(".service") else f"{unit}.service"
         journal_parts.extend(["-u", shlex.quote(name)])
     journal_parts.extend(["-f", "--no-pager", "-n", "50", "-o", "short-iso"])
     remote_cmd = " ".join(journal_parts)
-    return [
-        "ssh",
-        "-i", PBS_DEFAULT_KEY,
-        "-o", "BatchMode=yes",
-        "-o", "StrictHostKeyChecking=accept-new",
-        "root@10.0.30.5",
-        remote_cmd,
-    ]
+    if conn.get("local"):
+        return build_journalctl_command(units)
+    return proxmox_ssh_command(conn, remote_cmd)
 
 
-def build_auto_panels() -> list[dict]:
-    panels = [
-        {
-            "id": "proxmox-vzdump",
-            "category": "proxmox",
-            "title": "VZDump",
-            "description": "Backup taken op Proxmox node (minilab)",
-            "enabled": True,
-            "height": 220,
-            "auto": True,
-            "command": [
-                "bash", "-c",
-                "journalctl -f --no-pager -o short-iso 2>/dev/null | "
-                "grep --line-buffered -iE \"vzdump|pbs-vault|backup:|backup-\"",
-            ],
-        },
-        {
-            "id": "proxmox-pve",
-            "category": "proxmox",
-            "title": "Proxmox VE",
-            "description": "pvedaemon en pveproxy",
-            "enabled": True,
-            "height": 200,
-            "auto": True,
-            "command": build_journalctl_command(["pvedaemon", "pveproxy"]),
-        },
-        {
-            "id": "backup-pbs",
-            "category": "backup",
-            "title": "PBS Server",
-            "description": "Proxmox Backup Server (10.0.30.5)",
-            "enabled": True,
-            "height": 220,
-            "auto": True,
-            "command": pbs_remote_journalctl(["proxmox-backup"]),
-        },
-        {
-            "id": "backup-safety",
-            "category": "backup",
-            "title": "PBS Wake & Shutdown",
-            "description": "Veiligheids timers op minilab",
-            "enabled": True,
-            "height": 200,
-            "auto": True,
-            "command": build_journalctl_command(["pbs-wake", "pbs-shutdown"]),
-        },
-    ]
+def build_auto_panels(config: dict | None = None) -> list[dict]:
+    config = config or {}
+    conn, node_label, proxmox_host = resolve_proxmox_target(config)
+    pbs_host = ((config.get("status") or {}).get("pbs_host") or "").strip()
+    panels: list[dict] = []
 
-    try:
-        containers = list_containers()
-    except ValueError:
-        containers = []
+    if conn:
+        node_label = node_label or proxmox_host
+        panels.extend(
+            [
+                {
+                    "id": "proxmox-vzdump",
+                    "category": "proxmox",
+                    "title": "VZDump",
+                    "description": f"Backup taken op {node_label}",
+                    "enabled": True,
+                    "height": 220,
+                    "auto": True,
+                    "command": vzdump_log_command(conn),
+                },
+                {
+                    "id": "proxmox-pve",
+                    "category": "proxmox",
+                    "title": "Proxmox VE",
+                    "description": f"pvedaemon en pveproxy ({node_label})",
+                    "enabled": True,
+                    "height": 200,
+                    "auto": True,
+                    "command": journalctl_command_for_conn(conn, ["pvedaemon", "pveproxy"]),
+                },
+                {
+                    "id": "backup-safety",
+                    "category": "backup",
+                    "title": "PBS Wake & Shutdown",
+                    "description": f"Veiligheidstimers op {node_label}",
+                    "enabled": True,
+                    "height": 200,
+                    "auto": True,
+                    "command": journalctl_command_for_conn(conn, ["pbs-wake", "pbs-shutdown"]),
+                },
+            ]
+        )
 
-    for ct in containers:
-        if ct["status"] != "running":
-            continue
+        try:
+            containers = list_containers(conn)
+        except ValueError:
+            containers = []
+
+        for ct in containers:
+            if ct["status"] != "running":
+                continue
+            panels.append(
+                {
+                    "id": f"ct-{ct['id']}",
+                    "category": "container",
+                    "title": f"{ct['name']}",
+                    "description": f"CT {ct['id']} op {node_label}",
+                    "enabled": True,
+                    "height": 180,
+                    "auto": True,
+                    "ctid": ct["id"],
+                    "command": container_log_command(ct["id"], conn),
+                }
+            )
+
+        try:
+            docker_containers = list_docker_containers(conn)
+        except ValueError:
+            docker_containers = []
+
+        for dc in docker_containers:
+            if not docker_is_running(dc["status"]):
+                continue
+            slug = slugify(dc["name"]) or dc["id"][:12]
+            panels.append(
+                {
+                    "id": f"docker-{slug}",
+                    "category": "docker",
+                    "title": dc["name"],
+                    "description": f"Docker op {node_label} — {dc.get('image') or 'container'}",
+                    "enabled": True,
+                    "height": 180,
+                    "auto": True,
+                    "command": docker_log_command(dc["name"], conn),
+                }
+            )
+
+    pbs_cmd = pbs_remote_journalctl(["proxmox-backup"], pbs_host)
+    if pbs_cmd:
         panels.append(
             {
-                "id": f"ct-{ct['id']}",
-                "category": "container",
-                "title": f"{ct['name']}",
-                "description": f"CT {ct['id']} — alle logs",
+                "id": "backup-pbs",
+                "category": "backup",
+                "title": "PBS Server",
+                "description": f"Proxmox Backup Server ({pbs_host})",
                 "enabled": True,
-                "height": 180,
+                "height": 220,
                 "auto": True,
-                "ctid": ct["id"],
-                "command": container_log_command(ct["id"]),
+                "command": pbs_cmd,
             }
         )
 
-    try:
-        docker_containers = list_docker_containers()
-    except ValueError:
-        docker_containers = []
-
-    for dc in docker_containers:
-        if not docker_is_running(dc["status"]):
-            continue
-        slug = slugify(dc["name"]) or dc["id"][:12]
-        panels.append(
-            {
-                "id": f"docker-{slug}",
-                "category": "docker",
-                "title": dc["name"],
-                "description": f"Docker — {dc.get('image') or 'container'}",
-                "enabled": True,
-                "height": 180,
-                "auto": True,
-                "command": docker_log_command(dc["name"]),
-            }
-        )
     return panels
 
 
@@ -2035,7 +2110,7 @@ def sync_log_panels(config: dict, category: str | None = None) -> dict:
         "vzdump", "pbs-services", "pbs-server",
         "homepage-logs", "homepage-service",
     }
-    auto = build_auto_panels()
+    auto = build_auto_panels(config)
     if category:
         categories = normalize_log_categories(config.get("categories"))
         if category not in categories:
@@ -3481,7 +3556,7 @@ HTML = r"""<!DOCTYPE html>
           <div class="field">
             <label>Proxmox host / IP</label>
             <input name="proxmox_host" id="status-edit-proxmox" placeholder="minilab of 10.0.30.3">
-            <small>Online-check (8006), RAM/disk, VM/LXC en backup via SSH. Leeg = overslaan.</small>
+            <small>Statusbalk én auto-panelen (VZDump, CT&apos;s, Docker) via SSH. Leeg = overslaan.</small>
           </div>
           <div class="field" style="display:none">
             <label>Titel</label>
@@ -3490,7 +3565,7 @@ HTML = r"""<!DOCTYPE html>
           <div class="field">
             <label>PBS host / IP</label>
             <input name="pbs_host" id="status-edit-pbs" placeholder="pbs of 10.0.30.5">
-            <small>Online-check op poort 8007. Leeg = overslaan.</small>
+            <small>Status-check (8007) en PBS-logpanel. Leeg = overslaan.</small>
           </div>
           <div class="field">
             <label>Verversing (seconden)</label>

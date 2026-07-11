@@ -153,6 +153,22 @@ EOF
   fi
 }
 
+setup_proxmox_node() {
+  [[ -n "${HOMELAB_PROXMOX_HOST:-}" ]] || return 0
+  step "Proxmox-node koppelen (${HOMELAB_NODE_NAME:-$HOMELAB_PROXMOX_HOST})..."
+  local script="$APP_DIR/scripts/seed-proxmox-node.sh"
+  if [[ ! -f "$script" ]]; then
+    curl -fsSL "${HOMELAB_REPO_RAW:-https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main}/scripts/seed-proxmox-node.sh" -o /tmp/seed-proxmox-node.sh
+    script="/tmp/seed-proxmox-node.sh"
+  fi
+  chmod +x "$script"
+  HOMELAB_APP_ROOT="$APP_DIR" \
+    HOMELAB_PROXMOX_HOST="${HOMELAB_PROXMOX_HOST}" \
+    HOMELAB_NODE_NAME="${HOMELAB_NODE_NAME:-$HOMELAB_PROXMOX_HOST}" \
+    HOMELAB_PBS_HOST="${HOMELAB_PBS_HOST:-}" \
+    bash "$script" >>"$INSTALL_LOG" 2>&1 || true
+}
+
 setup_systemd() {
   step "[7/7] Systemd service configureren..."
   local ip
@@ -219,6 +235,7 @@ else
   setup_local_mariadb
   setup_ssh_dir
   setup_systemd
+  setup_proxmox_node
 fi
 
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
