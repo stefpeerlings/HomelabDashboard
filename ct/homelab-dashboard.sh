@@ -53,7 +53,7 @@ function finish_dashboard_install() {
   pve_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
   proxmox_target="${pve_ip:-$pve_name}"
 
-  msg_info "installing systemfiles (patience)"
+  echo "installing systemfiles (patience)"
   local ready=false
   for _ in $(seq 1 45); do
     if pct exec "$ctid" -- systemctl is-active --quiet homelab-dashboard 2>/dev/null \
@@ -64,7 +64,6 @@ function finish_dashboard_install() {
     sleep 2
   done
   if [[ "$ready" != true ]]; then
-    msg_warn "Dashboard-service nog niet actief — panelen mogelijk leeg bij eerste openen"
     return 1
   fi
 
@@ -102,7 +101,6 @@ function finish_dashboard_install() {
     return 0
   fi
 
-  msg_warn "Auto-panelen niet klaar — log: ${seed_log}"
   return 1
 }
 
@@ -223,9 +221,9 @@ function update_script() {
 
 start
 build_container
+
 pct set "$CTID" -tags homelab-dashboard 2>/dev/null || true
 description
-
 finish_dashboard_install || true
 
 clear
