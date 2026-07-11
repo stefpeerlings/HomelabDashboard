@@ -33,9 +33,20 @@ if [[ "${1:-}" == "--update" || "${1:-}" == "-u" ]]; then
   UPDATE_MODE=true
 fi
 
+homelab_tty() {
+  if [[ -w /dev/console ]]; then
+    echo "$@" >/dev/console 2>/dev/null && return
+  fi
+  if [[ -w /dev/tty ]]; then
+    echo "$@" >/dev/tty 2>/dev/null && return
+  fi
+  echo "$@"
+}
+
 step() {
   if [[ "$QUIET" == true ]]; then
     echo "$(date -Iseconds) $*" >>"$INSTALL_LOG"
+    homelab_tty "$@"
   else
     echo "$@"
   fi

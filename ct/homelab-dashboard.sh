@@ -53,7 +53,7 @@ function finish_dashboard_install() {
   pve_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
   proxmox_target="${pve_ip:-$pve_name}"
 
-  msg_info "Wachten op dashboard-service in CT ${ctid}..."
+  msg_info "Installing dashboard — waiting for service (CT ${ctid})..."
   local ready=false
   for _ in $(seq 1 45); do
     if pct exec "$ctid" -- systemctl is-active --quiet homelab-dashboard 2>/dev/null \
@@ -229,6 +229,8 @@ start
 build_container
 pct set "$CTID" -tags homelab-dashboard 2>/dev/null || true
 description
+
+msg_info "Installing dashboard system files (patience)..."
 finish_dashboard_install || true
 
 clear
