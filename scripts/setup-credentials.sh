@@ -14,8 +14,8 @@ fi
 mkdir -p "$CRED_DIR"
 chmod 700 "$CRED_DIR"
 
-read -rp "MariaDB host [10.0.10.17]: " DB_HOST
-DB_HOST="${DB_HOST:-10.0.10.17}"
+read -rp "MariaDB host [mariadb.lan]: " DB_HOST
+DB_HOST="${DB_HOST:-mariadb.lan}"
 read -rp "MariaDB poort [3306]: " DB_PORT
 DB_PORT="${DB_PORT:-3306}"
 read -rp "Database naam [homelab_dashboard]: " DB_NAME

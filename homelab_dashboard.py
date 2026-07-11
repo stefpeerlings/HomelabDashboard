@@ -70,15 +70,40 @@ try:
     from pymysql.cursors import DictCursor
 except ImportError as exc:
     raise SystemExit("python3-pymysql is vereist: apt install python3-pymysql") from exc
-PBS_DEFAULT_KEY = "/root/.ssh/pbs_key"
-PBS_REMOTE_HOSTS = {"10.0.30.5", "pbs"}
-PROXMOX_DEFAULT_KEY = "/root/.ssh/id_ed25519_default"
-PROXMOX_FALLBACK_KEYS = (
-    "/root/.ssh/id_ed25519_default",
-    "/root/.ssh/id_ed25519",
-    "/root/.ssh/id_rsa",
+def _parse_csv_env(name: str, default: str = "") -> set[str]:
+    raw = os.environ.get(name, default).strip()
+    if not raw:
+        return set()
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _default_status_command() -> list[str]:
+    raw = os.environ.get("HOMELAB_STATUS_COMMAND", "").strip()
+    if not raw:
+        return ["echo", "Geen status-commando geconfigureerd"]
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, list):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+    return shlex.split(raw)
+
+
+PBS_DEFAULT_KEY = os.environ.get("HOMELAB_PBS_KEY", "/root/.ssh/pbs_key")
+PBS_SSH_TARGET = os.environ.get("HOMELAB_PBS_SSH", "root@pbs")
+PBS_REMOTE_HOSTS = _parse_csv_env("HOMELAB_PBS_HOSTS", "pbs")
+PROXMOX_DEFAULT_KEY = os.environ.get("HOMELAB_PROXMOX_KEY", "/root/.ssh/id_ed25519")
+PROXMOX_FALLBACK_KEYS = tuple(
+    key for key in (
+        os.environ.get("HOMELAB_PROXMOX_KEY", "/root/.ssh/id_ed25519"),
+        "/root/.ssh/id_ed25519",
+        "/root/.ssh/id_rsa",
+    )
+    if key
 )
-LOCAL_PROXMOX_HOSTS = {"localhost", "127.0.0.1", "minilab", "10.0.30.3"}
+LOCAL_PROXMOX_HOSTS = _parse_csv_env("HOMELAB_LOCAL_HOSTS", "localhost,127.0.0.1")
+BOOTSTRAP_PASSWORD = os.environ.get("HOMELAB_BOOTSTRAP_PASSWORD", "").strip()
 DEFAULT_CONFIG = {
     "title": "Homelab Dashboard",
     "host": "0.0.0.0",
@@ -86,7 +111,7 @@ DEFAULT_CONFIG = {
     "ws_port": 8766,
     "status": {
         "label": "Status",
-        "command": ["/usr/local/bin/pbs-manage.sh", "check"],
+        "command": _default_status_command(),
         "interval_seconds": 5,
     },
     "panels": [],
@@ -249,9 +274,9 @@ def ensure_smtp_template() -> None:
             "enabled": False,
             "host": "smtp.voorbeeld.nl",
             "port": 587,
-            "user": "dashboard@home-labe.com",
+            "user": "dashboard@voorbeeld.nl",
             "password": "VUL_AAN",
-            "from": "Homelab Dashboard <dashboard@home-labe.com>",
+            "from": "Homelab Dashboard <dashboard@voorbeeld.nl>",
             "use_tls": True,
             "dashboard_url": PUBLIC_DASHBOARD_URL or "http://127.0.0.1:8765/",
             "note": "Zet enabled op true en vul SMTP-gegevens in voor wachtwoord-reset mails",
@@ -673,6 +698,7 @@ def ensure_dashboard_users() -> None:
                 return
 
             legacy_auth = None
+            bootstrap_password = None
             if DASHBOARD_AUTH_PATH.exists():
                 legacy_auth = json.loads(DASHBOARD_AUTH_PATH.read_text(encoding="utf-8"))
 
@@ -681,7 +707,8 @@ def ensure_dashboard_users() -> None:
                 password_hash = legacy_auth["password_hash"]
             else:
                 username = "admin"
-                password_hash = hash_password("homelab123")
+                bootstrap_password = BOOTSTRAP_PASSWORD or secrets.token_urlsafe(12)
+                password_hash = hash_password(bootstrap_password)
 
             _execute(
                 conn,
@@ -690,9 +717,12 @@ def ensure_dashboard_users() -> None:
             )
             conn.commit()
 
-            password_hint = "homelab123" if username == "admin" and not (
-                legacy_auth and legacy_auth.get("password_hash")
-            ) else "(bestaand wachtwoord)"
+            if legacy_auth and legacy_auth.get("password_hash"):
+                password_hint = "(bestaand wachtwoord)"
+            elif bootstrap_password:
+                password_hint = bootstrap_password
+            else:
+                password_hint = "(bestaand wachtwoord)"
             if legacy_auth and legacy_auth.get("password_hash") and DASHBOARD_LOGIN_PATH.exists():
                 try:
                     login_info = json.loads(DASHBOARD_LOGIN_PATH.read_text(encoding="utf-8"))
@@ -704,14 +734,20 @@ def ensure_dashboard_users() -> None:
                 DASHBOARD_LOGIN_PATH,
                 {
                     "user": username,
-                    "password": password_hint if isinstance(password_hint, str) else "homelab123",
+                    "password": password_hint if isinstance(password_hint, str) else "(zie serverlog)",
                     "url": PUBLIC_DASHBOARD_URL or "http://127.0.0.1:8765/",
                     "note": "Dashboard login — beheer gebruikers via Account menu",
                 },
             )
             secret = (legacy_auth or {}).get("session_secret") or ensure_session_secret()["session_secret"]
             _save_secret_json(DASHBOARD_AUTH_PATH, {"session_secret": secret})
-            print(f"Dashboard gebruiker '{username}' aangemaakt (rol: admin)")
+            if bootstrap_password:
+                print(
+                    f"Dashboard gebruiker '{username}' aangemaakt (rol: admin) — "
+                    f"tijdelijk wachtwoord opgeslagen in {DASHBOARD_LOGIN_PATH}"
+                )
+            else:
+                print(f"Dashboard gebruiker '{username}' aangemaakt (rol: admin)")
         finally:
             conn.close()
 
@@ -1470,7 +1506,7 @@ def resolve_ssh_target(
                 resolved_key = candidate
                 break
         else:
-            raise ValueError(f"SSH key bestand niet gevonden op minilab: {resolved_key}")
+            raise ValueError(f"SSH key bestand niet gevonden op deze host: {resolved_key}")
 
     return {
         "alias": host if alias_cfg else None,
@@ -1679,7 +1715,7 @@ def pbs_remote_journalctl(units: list[str]) -> list[str]:
         "-i", PBS_DEFAULT_KEY,
         "-o", "BatchMode=yes",
         "-o", "StrictHostKeyChecking=accept-new",
-        "root@10.0.30.5",
+        PBS_SSH_TARGET,
         remote_cmd,
     ]
 
@@ -1690,7 +1726,7 @@ def build_auto_panels() -> list[dict]:
             "id": "proxmox-vzdump",
             "category": "proxmox",
             "title": "VZDump",
-            "description": "Backup taken op Proxmox node (minilab)",
+            "description": "Backup taken op Proxmox node",
             "enabled": True,
             "height": 220,
             "auto": True,
@@ -1714,7 +1750,7 @@ def build_auto_panels() -> list[dict]:
             "id": "backup-pbs",
             "category": "backup",
             "title": "PBS Server",
-            "description": "Proxmox Backup Server (10.0.30.5)",
+            "description": "Proxmox Backup Server (via SSH)",
             "enabled": True,
             "height": 220,
             "auto": True,
@@ -1724,7 +1760,7 @@ def build_auto_panels() -> list[dict]:
             "id": "backup-safety",
             "category": "backup",
             "title": "PBS Wake & Shutdown",
-            "description": "Veiligheids timers op minilab",
+            "description": "Veiligheids timers (pbs-wake / pbs-shutdown)",
             "enabled": True,
             "height": 200,
             "auto": True,
@@ -2147,12 +2183,12 @@ def validate_key_file_path(path: str) -> str:
     if path.startswith(("ssh-", "ecdsa-", "ssh-rsa")) or "AAAA" in path:
         raise ValueError(
             "Dit is een public key, geen bestandspad. "
-            "Vul het pad in op minilab, bijv. /root/.ssh/id_ed25519_homepage"
+            "Vul het absolute pad in op de dashboard-host, bijv. /root/.ssh/id_ed25519"
         )
     if not path.startswith("/"):
         raise ValueError("SSH key pad moet absoluut zijn, bijv. /root/.ssh/pbs_key")
     if not os.path.isfile(path):
-        raise ValueError(f"SSH key bestand niet gevonden op minilab: {path}")
+        raise ValueError(f"SSH key bestand niet gevonden op deze host: {path}")
     return path
 
 
@@ -3095,7 +3131,7 @@ HTML = r"""<!DOCTYPE html>
         <div class="sidebar-divider"></div>
         <div class="field">
           <label for="user-new-name">Nieuwe gebruiker</label>
-          <input id="user-new-name" type="text" placeholder="bijv. stef" autocomplete="off">
+          <input id="user-new-name" type="text" placeholder="bijv. jan" autocomplete="off">
         </div>
         <div class="field">
           <label for="user-new-email">E-mail (voor wachtwoord-reset)</label>
@@ -3332,7 +3368,7 @@ HTML = r"""<!DOCTYPE html>
               <select name="docker_container" id="log-docker-select" required>
                 <option value="">Laden...</option>
               </select>
-              <small>Lijst via <code>docker ps</code> — host leeg = minilab, anders via SSH</small>
+              <small>Lijst via <code>docker ps</code> — host leeg = lokaal, anders via SSH</small>
             </div>
             <div class="field" id="field-units">
               <label>systemd unit(s)</label>
@@ -4521,7 +4557,7 @@ HTML = r"""<!DOCTYPE html>
 
     const LOG_SOURCE_HINTS = {
       proxmox: "Verbind met een Proxmox node via SSH. Kies node logs of een LXC container op die node.",
-      docker: "Docker logs via <code>docker logs -f</code>. Host leeg = minilab, anders via SSH op die host.",
+      docker: "Docker logs via <code>docker logs -f</code>. Host leeg = lokaal, anders via SSH op die host.",
       remote: "Logs via SSH van een remote host (typisch PBS). Vul IP en units handmatig in.",
       command: "Voer een eigen shell-commando in — bijv. <code>tail -F</code> op een logbestand.",
     };

@@ -1,5 +1,5 @@
 {
-  "host": "10.0.10.17",
+  "host": "mariadb.lan",
   "port": 3306,
   "user": "homelab_dashboard",
   "password": "VUL_AAN",

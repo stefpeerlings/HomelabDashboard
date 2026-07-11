@@ -6,7 +6,7 @@ set -euo pipefail
 
 DB_NAME="${HOMELAB_DB_NAME:-homelab_dashboard}"
 DB_USER="${HOMELAB_DB_USER:-homelab_dashboard}"
-DB_HOST_PATTERN="${HOMELAB_DB_HOST_PATTERN:-10.0.%}"
+DB_HOST_PATTERN="${HOMELAB_DB_HOST_PATTERN:-192.168.%}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Voer uit als root op de MariaDB-server."

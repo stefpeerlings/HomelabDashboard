@@ -36,7 +36,7 @@ Of handmatig met SQL (`scripts/setup-mariadb.sql` — vervang `CHANGE_ME`).
 
 Dit maakt aan:
 - Database `homelab_dashboard` (utf8mb4)
-- Gebruiker `homelab_dashboard` met toegang vanaf `10.0.%` en `localhost`
+- Gebruiker `homelab_dashboard` met toegang vanaf jouw netwerk (standaard `192.168.%`) en `localhost`
 
 ### Stap 2 — Credentials op dashboard-container
 
@@ -55,13 +55,13 @@ bash /opt/homelab-dashboard/scripts/test-db-connection.sh
 ### Wat gebeurt bij eerste start?
 
 De app maakt automatisch tabellen aan (`settings`, `panels`, `ssh_hosts`, `dashboard_users`, …).  
-Bij een **lege** database: standaardinstellingen + gebruiker `admin` / `homelab123`.  
-Bij een **bestaande** database: alle data blijft behouden (meerdere dashboard-instanties kunnen dezelfde DB delen — draai er liever maar één).
+Bij een **lege** database: standaardinstellingen + admin-gebruiker (wachtwoord in `/root/.homelab-db/credentials/dashboard-login.json` of install-log).  
+Bij een **bestaande** database: alle data blijft behouden (draai liever maar één dashboard tegelijk per database).
 
 ### Bestaande MariaDB hergebruiken
 
-Heb je al CT 130 (`10.0.10.17`) met `homelab_dashboard`?  
-Dan hoef je alleen `service.json` op de nieuwe dashboard-LXC in te vullen — geen data-migratie.
+Heb je al een MariaDB-server met database `homelab_dashboard`?  
+Vul alleen `service.json` in op de dashboard-container — geen data-migratie nodig.
 
 ## Snelle installatie (LXC)
 
@@ -86,7 +86,7 @@ Zie [Database (MariaDB)](#database-mariadb--eerst-dit) hierboven voor de volledi
 ### Eerste login
 
 - Gebruiker: `admin`
-- Wachtwoord: `homelab123` (wijzig direct na eerste login)
+- Wachtwoord: zie `dashboard-login.json` na eerste start (of stel `HOMELAB_BOOTSTRAP_PASSWORD` in vóór installatie)
 
 ## Update
 
@@ -120,6 +120,11 @@ homelab-dashboard/
 | `HOMELAB_CREDENTIALS_DIR` | `/root/.homelab-db/credentials` | Secrets |
 | `HOMELAB_PUBLIC_URL` | auto | URL voor e-mail links |
 | `HOMELAB_STATIC_DIR` | `$APP_ROOT/static` | Statische bestanden |
+| `HOMELAB_BOOTSTRAP_PASSWORD` | (random) | Eerste admin-wachtwoord |
+| `HOMELAB_PBS_SSH` | `root@pbs` | PBS SSH-target voor backup-logs |
+| `HOMELAB_LOCAL_HOSTS` | `localhost,127.0.0.1` | Hosts voor lokale Proxmox/Docker |
+
+Zie `config/homelab.env.example` voor alle opties.
 
 ## SSH-keys
 
