@@ -137,13 +137,17 @@ setup_ssh_dir() {
   step "[6/7] SSH-map voorbereiden..."
   mkdir -p /root/.ssh
   chmod 700 /root/.ssh
+  if [[ ! -f /root/.ssh/id_ed25519_default ]]; then
+    ssh-keygen -t ed25519 -N "" -f /root/.ssh/id_ed25519_default >/dev/null
+    chmod 600 /root/.ssh/id_ed25519_default
+  fi
   if [[ ! -f /root/.ssh/config ]]; then
     cat >/root/.ssh/config <<'EOF'
 # Voeg Proxmox/PBS hosts toe, bijv.:
 # Host proxmox.lan
 #   HostName 10.0.30.3
 #   User root
-#   IdentityFile ~/.ssh/id_ed25519
+#   IdentityFile ~/.ssh/id_ed25519_default
 EOF
     chmod 600 /root/.ssh/config
   fi

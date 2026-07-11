@@ -80,24 +80,100 @@ def resolve_public_dashboard_url() -> str:
     return "http://127.0.0.1:8765/"
 
 
+STATUS_HOST_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
+
+
+def status_host_valid(host: str) -> bool:
+    host = (host or "").strip()
+    return bool(host) and bool(STATUS_HOST_RE.fullmatch(host))
+
+
+def proxmox_ssh_shell_prefix(host: str) -> str | None:
+    """Shell-prefix voor remote Proxmox-commando's; '' = lokaal; None = niet beschikbaar."""
+    host = (host or "").strip()
+    if not status_host_valid(host):
+        return None
+    try:
+        conn = resolve_ssh_target(host)
+    except (ValueError, OSError):
+        return None
+    if conn.get("local"):
+        return ""
+    prefix_parts = proxmox_ssh_command(conn, "true")[:-1]
+    return " ".join(shlex.quote(part) for part in prefix_parts)
+
+
+def _status_remote_exec(prefix: str | None, script: str) -> str | None:
+    if prefix is None:
+        return None
+    script = script.strip()
+    if not script:
+        return None
+    if prefix == "":
+        return script
+    return f"{prefix} {shlex.quote(script)}"
+
+
+def _status_http_check(label: str, host: str, port: int) -> str:
+    host_q = shlex.quote(host)
+    return (
+        f"echo -n '{label} ({host}): '"
+        f"; if curl -sk --connect-timeout 4 https://{host_q}:{port}/ >/dev/null 2>&1; "
+        f"then echo online; else echo offline; fi"
+    )
+
+
 def build_status_command(settings: dict | None = None) -> list:
     settings = settings or {}
     proxmox_host = (settings.get("status_proxmox_host") or "").strip()
+    pbs_host = (settings.get("status_pbs_host") or "").strip()
+    px_prefix = proxmox_ssh_shell_prefix(proxmox_host) if proxmox_host else None
+
     parts = [
         "IP=$(hostname -I 2>/dev/null | awk '{print $1}')",
         'echo "Dashboard: http://${IP:-onbekend}:8765"',
         "systemctl is-active --quiet homelab-dashboard && echo 'Service: active' || echo 'Service: inactive'",
         "systemctl is-active --quiet mariadb 2>/dev/null && echo 'MariaDB: active' || true",
+        "free -m 2>/dev/null | awk '/^Mem:/{printf \"RAM: %dM / %dM\\n\", $3,$2}'",
+        "df -h / 2>/dev/null | awk 'NR==2{printf \"Disk /: %s (%s van %s)\\n\", $5,$3,$2}'",
     ]
-    if proxmox_host:
-        host_q = shlex.quote(proxmox_host)
-        parts.append(f"echo -n 'Proxmox ({proxmox_host}): '")
-        parts.append(
-            f"if curl -sk --connect-timeout 4 https://{host_q}:8006/ >/dev/null 2>&1; "
-            f"then echo online; else echo offline; fi"
-        )
+
+    if status_host_valid(proxmox_host):
+        parts.append(_status_http_check("Proxmox", proxmox_host, 8006))
+
+    if status_host_valid(pbs_host):
+        parts.append(_status_http_check("PBS", pbs_host, 8007))
+
+    vm_cmd = (
+        "qm list 2>/dev/null | awk 'NR>1 && $1~/^[0-9]+$/"
+        "{t++; if(tolower($3)==\"running\") r++} END{printf \"VM: %d/%d running\\n\", r+0, t+0}'"
+    )
+    lxc_cmd = (
+        "pct list 2>/dev/null | awk 'NR>1 && $1~/^[0-9]+$/"
+        "{t++; if(tolower($2)==\"running\") r++} END{printf \"LXC: %d/%d running\\n\", r+0, t+0}'"
+    )
+    backup_cmd = (
+        "if pgrep -f '[v]zdump' >/dev/null 2>&1; then echo 'Backup: vzdump bezig'; "
+        "else LAST=$(journalctl --no-pager -n 400 -o cat 2>/dev/null | "
+        "grep -iE 'vzdump|backup job' | grep -iE 'finished|failed|error|TASK OK' | tail -1); "
+        "if echo \"$LAST\" | grep -qiE 'fail|error'; then echo 'Backup: MISLUKT'; "
+        "elif [ -n \"$LAST\" ]; then TS=$(echo \"$LAST\" | grep -oE '[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9:]{4,8}' | tail -1); "
+        "echo \"Backup: OK${TS:+ ($TS)}\"; else echo 'Backup: geen recente vzdump'; fi; fi"
+    )
+    shutdown_cmd = (
+        "if systemctl list-timers pbs-shutdown.timer --no-pager 2>/dev/null | grep -q pbs-shutdown; then "
+        "LEFT=$(systemctl list-timers pbs-shutdown.timer --no-pager --no-legend 2>/dev/null | awk 'NR==1{print $1,$2,$3}'); "
+        "echo \"PBS shutdown: gepland (${LEFT:-onbekend})\"; "
+        "else echo 'PBS shutdown: shutdown mag'; fi"
+    )
+
+    for script in (vm_cmd, lxc_cmd, backup_cmd, shutdown_cmd):
+        remote = _status_remote_exec(px_prefix, script)
+        if remote:
+            parts.append(remote)
+
     parts.append("uptime -p 2>/dev/null || uptime")
-    return ["bash", "-lc", "; ".join(parts)]
+    return ["bash", "-lc", "\n".join(parts)]
 SESSION_DAYS = 14
 RESET_TOKEN_HOURS = 2
 _db_lock = threading.Lock()
@@ -361,6 +437,12 @@ def ensure_dashboard_schema_updates(conn) -> None:
         _execute(
             conn,
             "INSERT INTO settings (setting_key, setting_value) VALUES ('status_proxmox_host', '10.0.30.3') "
+            "ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",
+        )
+    if not _fetchone(conn, "SELECT setting_value FROM settings WHERE setting_key='status_pbs_host'"):
+        _execute(
+            conn,
+            "INSERT INTO settings (setting_key, setting_value) VALUES ('status_pbs_host', '') "
             "ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",
         )
 
@@ -1045,8 +1127,9 @@ def _seed_default_settings(conn) -> None:
         "port": str(DEFAULT_CONFIG["port"]),
         "ws_port": str(DEFAULT_CONFIG["ws_port"]),
         "status_label": DEFAULT_CONFIG["status"]["label"],
-        "status_proxmox_host": "10.0.30.3",
-        "status_command": json.dumps(build_status_command({"status_proxmox_host": "10.0.30.3"})),
+        "status_proxmox_host": "",
+        "status_pbs_host": "",
+        "status_command": json.dumps(build_status_command()),
         "status_interval_seconds": str(DEFAULT_CONFIG["status"]["interval_seconds"]),
         "log_categories": json.dumps(DEFAULT_LOG_CATEGORIES),
     }
@@ -1068,10 +1151,12 @@ def write_config_to_db(conn, config: dict) -> None:
         "ws_port": str(config.get("ws_port", DEFAULT_CONFIG["ws_port"])),
         "status_label": config.get("status", {}).get("label", DEFAULT_CONFIG["status"]["label"]),
         "status_proxmox_host": config.get("status", {}).get("proxmox_host", ""),
+        "status_pbs_host": config.get("status", {}).get("pbs_host", ""),
         "status_command": json.dumps(
             build_status_command(
                 {
                     "status_proxmox_host": config.get("status", {}).get("proxmox_host", ""),
+                    "status_pbs_host": config.get("status", {}).get("pbs_host", ""),
                 }
             )
         ),
@@ -1154,6 +1239,7 @@ def read_config_from_db(conn) -> dict:
         return config
 
     proxmox_host = settings.get("status_proxmox_host", "")
+    pbs_host = settings.get("status_pbs_host", "")
     status_command_list = build_status_command(settings)
 
     panels = [
@@ -1179,6 +1265,7 @@ def read_config_from_db(conn) -> dict:
         "status": {
             "label": settings.get("status_label", DEFAULT_CONFIG["status"]["label"]),
             "proxmox_host": proxmox_host,
+            "pbs_host": pbs_host,
             "command": status_command_list,
             "interval_seconds": int(
                 settings.get("status_interval_seconds", DEFAULT_CONFIG["status"]["interval_seconds"])
@@ -1193,18 +1280,22 @@ def read_config_from_db(conn) -> dict:
 def update_status_settings(config: dict, payload: dict) -> dict:
     label = str(payload.get("label", "")).strip() or DEFAULT_CONFIG["status"]["label"]
     proxmox_host = str(payload.get("proxmox_host", "")).strip()
+    pbs_host = str(payload.get("pbs_host", "")).strip()
     try:
         interval = int(payload.get("interval_seconds", DEFAULT_CONFIG["status"]["interval_seconds"]))
     except (TypeError, ValueError) as exc:
         raise ValueError("Ongeldig interval") from exc
     if interval < 2 or interval > 300:
         raise ValueError("Interval moet tussen 2 en 300 seconden zijn")
-    if proxmox_host and not re.fullmatch(r"[a-zA-Z0-9._-]+", proxmox_host):
+    if proxmox_host and not status_host_valid(proxmox_host):
         raise ValueError("Ongeldig Proxmox host/IP")
+    if pbs_host and not status_host_valid(pbs_host):
+        raise ValueError("Ongeldig PBS host/IP")
 
     status_settings = {
         "status_label": label,
         "status_proxmox_host": proxmox_host,
+        "status_pbs_host": pbs_host,
         "status_interval_seconds": str(interval),
     }
     status_settings["status_command"] = json.dumps(build_status_command(status_settings))
@@ -1230,6 +1321,7 @@ def update_status_settings(config: dict, payload: dict) -> dict:
         {
             "label": label,
             "proxmox_host": proxmox_host,
+            "pbs_host": pbs_host,
             "command": json.loads(status_settings["status_command"]),
             "interval_seconds": interval,
         }
@@ -2299,6 +2391,7 @@ def public_config(config: dict) -> dict:
         "status": {
             "label": config.get("status", {}).get("label", "Status"),
             "proxmox_host": config.get("status", {}).get("proxmox_host", ""),
+            "pbs_host": config.get("status", {}).get("pbs_host", ""),
             "interval_seconds": config.get("status", {}).get("interval_seconds", 5),
         },
         "panels": [
@@ -3335,8 +3428,13 @@ HTML = r"""<!DOCTYPE html>
           </div>
           <div class="field">
             <label>Proxmox host / IP</label>
-            <input name="proxmox_host" id="status-edit-proxmox" placeholder="10.0.30.3">
-            <small>Controleert of Proxmox webinterface (poort 8006) bereikbaar is.</small>
+            <input name="proxmox_host" id="status-edit-proxmox" placeholder="minilab of 10.0.30.3">
+            <small>Online-check (8006), VM/LXC-telling en backup-status via SSH. Leeg = overslaan.</small>
+          </div>
+          <div class="field">
+            <label>PBS host / IP</label>
+            <input name="pbs_host" id="status-edit-pbs" placeholder="pbs of 10.0.30.5">
+            <small>Online-check op poort 8007. Leeg = overslaan.</small>
           </div>
           <div class="field">
             <label>Verversing (seconden)</label>
@@ -4970,9 +5068,16 @@ HTML = r"""<!DOCTYPE html>
 
     function paintStatus(text) {
       statusEl.textContent = text.trim() || "(geen output)";
-      if (text.includes("offline")) setStatusState("offline");
-      else if (text.includes("shutdown mag")) setStatusState("idle");
-      else setStatusState("busy");
+      const low = text.toLowerCase();
+      if (low.includes("offline") || low.includes("mislukt") || low.includes("service: inactive")) {
+        setStatusState("offline");
+      } else if (low.includes("shutdown mag") || low.includes("backup: ok")) {
+        setStatusState("idle");
+      } else if (low.includes("vzdump bezig")) {
+        setStatusState("busy");
+      } else {
+        setStatusState("busy");
+      }
     }
 
     async function refreshStatus() {
@@ -5195,6 +5300,7 @@ HTML = r"""<!DOCTYPE html>
       if (!formStatusEditEl) return;
       document.getElementById("status-edit-label").value = config.status?.label || "Status";
       document.getElementById("status-edit-proxmox").value = config.status?.proxmox_host || "";
+      document.getElementById("status-edit-pbs").value = config.status?.pbs_host || "";
       document.getElementById("status-edit-interval").value = String(config.status?.interval_seconds || 5);
       if (statusEditErrorEl) statusEditErrorEl.textContent = "";
       statusEditModalEl?.classList.add("open");
@@ -6056,6 +6162,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": True, "status": {
                     "label": status.get("label", "Status"),
                     "proxmox_host": status.get("proxmox_host", ""),
+                    "pbs_host": status.get("pbs_host", ""),
                     "interval_seconds": status.get("interval_seconds", 5),
                 }})
                 return
