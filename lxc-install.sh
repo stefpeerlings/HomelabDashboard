@@ -80,7 +80,10 @@ prepare_dirs() {
   if [[ ! -f "$CREDENTIALS_DIR/service.json" ]]; then
     cp "$APP_DIR/config/service.json.example" "$CREDENTIALS_DIR/service.json"
     chmod 600 "$CREDENTIALS_DIR/service.json"
-    echo "⚠️  Vul $CREDENTIALS_DIR/service.json in (MariaDB)"
+    echo "⚠️  MariaDB nog niet geconfigureerd."
+    echo "    1) Op MariaDB-host: bash scripts/setup-mariadb.sh"
+    echo "    2) Hier: bash scripts/setup-credentials.sh"
+    echo "    3) Test: bash scripts/test-db-connection.sh"
   fi
 
   if [[ ! -f "$CREDENTIALS_DIR/smtp.json" ]]; then
@@ -168,7 +171,14 @@ echo "Dashboard: http://${IP:-<container-ip>}:${HTTP_PORT}/"
 echo "WebSocket SSH: poort ${WS_PORT}"
 echo "Credentials: $CREDENTIALS_DIR"
 echo ""
-echo "Standaard login (eerste start): admin / homelab123"
+echo "MariaDB setup (eenmalig op DB-host):"
+echo "  curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-mariadb.sh | bash"
+echo ""
+echo "Credentials + test op deze container:"
+echo "  bash $APP_DIR/scripts/setup-credentials.sh"
+echo "  bash $APP_DIR/scripts/test-db-connection.sh"
+echo ""
+echo "Standaard login (eerste start, lege DB): admin / homelab123"
 echo ""
 echo "Handige commando's:"
 echo "  systemctl status $SERVICE_NAME"

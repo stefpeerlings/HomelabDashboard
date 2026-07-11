@@ -18,6 +18,51 @@ Logs van Proxmox nodes, LXC containers, Docker, PBS en eigen commando's — met 
 - **SSH-toegang** vanaf de dashboard-container naar Proxmox/PBS hosts
 - Poorten **8765** (HTTP) en **8766** (WebSocket SSH)
 
+## Database (MariaDB) — eerst dit
+
+Het dashboard slaat panels, SSH-hosts, categorieën en gebruikers op in **MariaDB**.  
+De database draait **niet** in de dashboard-container — alleen een netwerkverbinding ernaartoe.
+
+### Stap 1 — Database aanmaken (op MariaDB-server/LXC)
+
+Op je MariaDB-host (bijv. CT 130) als root:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-mariadb.sh -o /tmp/setup-mariadb.sh
+bash /tmp/setup-mariadb.sh
+```
+
+Of handmatig met SQL (`scripts/setup-mariadb.sql` — vervang `CHANGE_ME`).
+
+Dit maakt aan:
+- Database `homelab_dashboard` (utf8mb4)
+- Gebruiker `homelab_dashboard` met toegang vanaf `10.0.%` en `localhost`
+
+### Stap 2 — Credentials op dashboard-container
+
+```bash
+bash /opt/homelab-dashboard/scripts/setup-credentials.sh
+```
+
+Bestand: `/root/.homelab-db/credentials/service.json`
+
+### Stap 3 — Verbinding testen
+
+```bash
+bash /opt/homelab-dashboard/scripts/test-db-connection.sh
+```
+
+### Wat gebeurt bij eerste start?
+
+De app maakt automatisch tabellen aan (`settings`, `panels`, `ssh_hosts`, `dashboard_users`, …).  
+Bij een **lege** database: standaardinstellingen + gebruiker `admin` / `homelab123`.  
+Bij een **bestaande** database: alle data blijft behouden (meerdere dashboard-instanties kunnen dezelfde DB delen — draai er liever maar één).
+
+### Bestaande MariaDB hergebruiken
+
+Heb je al CT 130 (`10.0.10.17`) met `homelab_dashboard`?  
+Dan hoef je alleen `service.json` op de nieuwe dashboard-LXC in te vullen — geen data-migratie.
+
 ## Snelle installatie (LXC)
 
 ### Optie A — Nieuwe LXC op Proxmox (aanbevolen)
@@ -36,14 +81,7 @@ In de container als root:
 bash <(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-install.sh)
 ```
 
-### Database credentials
-
-```bash
-bash /opt/homelab-dashboard/scripts/setup-credentials.sh
-# of handmatig: /root/.homelab-db/credentials/service.json
-```
-
-Voorbeeld: `config/service.json.example`
+Zie [Database (MariaDB)](#database-mariadb--eerst-dit) hierboven voor de volledige DB-setup.
 
 ### Eerste login
 
@@ -67,7 +105,11 @@ homelab-dashboard/
 ├── lxc-install.sh         # Installatie in LXC
 ├── ct/homelab-dashboard.sh # Proxmox community-scripts installer
 ├── config/                # Voorbeeld-configs (geen secrets)
-└── scripts/setup-credentials.sh
+└── scripts/
+    ├── setup-mariadb.sh      # Database aanmaken (op MariaDB-host)
+    ├── setup-mariadb.sql     # SQL-variant
+    ├── setup-credentials.sh  # service.json op dashboard
+    └── test-db-connection.sh # Verbinding testen
 ```
 
 ## Omgevingsvariabelen
