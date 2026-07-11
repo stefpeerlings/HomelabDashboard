@@ -45,32 +45,22 @@ var_arm64="${var_arm64:-yes}"
 var_unprivileged="${var_unprivileged:-1}"
 
 function install_dashboard_in_ct() {
-  local action="${1:-installeren}"
   local install_script="/tmp/homelab-dashboard-lxc-install.sh"
   local install_log="/var/log/homelab-dashboard-install-${CTID}.log"
 
-  clear
-  echo -e "${INFO}${YW}Homelab Dashboard ${action} in container ${CTID}...${CL}"
-  echo -e "${INFO}Even geduld — output staat in ${install_log}${CL}\n"
-
+  msg_info "Installing ${APP} in CT ${CTID}"
   curl -fsSL "${RAW_BASE}/lxc-install.sh" -o "$install_script"
   pct push "$CTID" "$install_script" /tmp/lxc-install.sh
 
   if ! HOMELAB_QUIET=1 pct exec "$CTID" -- bash /tmp/lxc-install.sh >>"$install_log" 2>&1; then
-    msg_error "Installatie mislukt — zie ${install_log}"
+    msg_error "Installation failed (log: ${install_log})"
     tail -20 "$install_log" || true
     exit 1
   fi
 
   pct set "$CTID" -tags homelab-dashboard
   rm -f "$install_script"
-
-  IP="$(pct exec "$CTID" ip -4 -o addr show dev eth0 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)"
-  [[ -z "$IP" ]] && IP="$(pct exec "$CTID" hostname -I 2>/dev/null | awk '{print $1}')"
-
-  clear
-  msg_ok "Homelab Dashboard ${action} voltooid"
-  echo -e "${GATEWAY}${BGN}http://${IP:-<container-ip>}:8765${CL}"
+  msg_ok "Installed ${APP}"
 }
 
 function header_info {
@@ -132,8 +122,7 @@ function update_script() {
     exit
   fi
 
-  install_dashboard_in_ct "bijwerken"
-  msg_ok "Updated ${APP}"
+  install_dashboard_in_ct
   msg_ok "Updated successfully!"
   exit
 }
@@ -143,8 +132,6 @@ build_container
 install_dashboard_in_ct
 description
 
+clear
 msg_ok "Completed successfully!\n"
-echo -e "${INFO}${YW}WebSocket SSH poort:${CL} ${BGN}8766${CL}"
-echo -e "${INFO}${YW}Standaard login:${CL} admin / homelab123"
-echo -e "${INFO}${YW}MariaDB koppelen:${CL}"
-echo -e "  bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-database.sh)\""
+echo -e "${GATEWAY}${BGN}http://${IP}:8765${CL}"
