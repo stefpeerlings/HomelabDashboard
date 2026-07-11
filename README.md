@@ -14,44 +14,40 @@ Logs van Proxmox nodes, LXC containers, Docker, PBS en eigen commando's — met 
 
 ## Vereisten
 
-- **MariaDB** op een aparte host of LXC (database `homelab_dashboard`)
+- **MariaDB** wordt automatisch in de dashboard-LXC geïnstalleerd (lokaal op `127.0.0.1`)
 - **SSH-toegang** vanaf de dashboard-container naar Proxmox/PBS hosts
 - Poorten **8765** (HTTP) en **8766** (WebSocket SSH)
+- **RAM:** minimaal 2 GB aanbevolen (MariaDB + dashboard)
 
-## Database — apart van het dashboard
+## Database
 
 Panels, SSH-hosts, categorieën en gebruikers staan in **MariaDB**.  
-Die database hoort **niet** in de dashboard-container zelf — alleen een netwerkverbinding ernaartoe.
+Bij een standaard LXC-installatie draait MariaDB **in dezelfde container** — geen aparte koppeling nodig.
 
-### Alles-in-één (aanbevolen)
+### Standaard (lokaal, automatisch)
 
-**Op de dashboard-container** — credentials, verbindingstest en service-herstart in één stap:
+`lxc-install.sh` en de Proxmox-installer regelen dit zelf:
+
+- MariaDB-server installeren
+- Database `homelab_dashboard` + gebruiker aanmaken
+- `service.json` schrijven naar `/root/.homelab-db/credentials/`
+- Dashboard starten
+
+Na installatie direct openen: `http://<container-ip>:8765`
+
+### Optioneel — externe MariaDB
+
+Gebruik je al een gedeelde MariaDB-server? Installeer met:
+
+```bash
+HOMELAB_DB_MODE=remote bash lxc-install.sh
+```
+
+Koppel daarna:
 
 ```bash
 bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-database.sh)"
 ```
-
-Het script detecteert automatisch dat het op de dashboard-container draait, vraagt host/wachtwoord, schrijft `service.json`, test de verbinding en herstart het dashboard.
-
-**Nog geen database?** Eerst op je MariaDB-server/LXC:
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-database.sh)" -- --server
-```
-
-Daarna de dashboard-link hierboven opnieuw uitvoeren.
-
-**Non-interactief** (bestaande database, bijv. na LXC-install):
-
-```bash
-HOMELAB_DB_HOST=10.0.10.17 HOMELAB_DB_PASS='jouw-wachtwoord' \
-  bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-database.sh)" -- --client
-```
-
-### Al een database?
-
-Draait `homelab_dashboard` al op een MariaDB-server die je elders beheert?  
-Dan hoef je geen data te migreren — alleen de dashboard-link hierboven (of de non-interactieve variant met bestaande gegevens).
 
 ### Eerste start van de app
 
@@ -78,7 +74,7 @@ In de container als root:
 bash <(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-install.sh)
 ```
 
-Werk daarna de database-stappen hierboven af.
+MariaDB wordt automatisch lokaal geïnstalleerd.
 
 ### Eerste login
 
@@ -107,8 +103,9 @@ homelab-dashboard/
 ├── ct/homelab-dashboard.sh # Proxmox community-scripts installer
 ├── config/                 # Voorbeeld-configs (geen secrets)
 └── scripts/
-    ├── setup-database.sh      # Alles-in-één (aanbevolen)
-    ├── setup-mariadb.sh       # Database aanmaken (op MariaDB-host)
+    ├── setup-local-mariadb.sh # Lokaal in dashboard-LXC (standaard)
+    ├── setup-database.sh      # Externe MariaDB koppelen
+    ├── setup-mariadb.sh       # Database op aparte MariaDB-host
     ├── setup-mariadb.sql
     ├── setup-credentials.sh   # Alleen service.json
     └── test-db-connection.sh

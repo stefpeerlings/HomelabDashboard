@@ -37,7 +37,7 @@ fetch_repo_file() {
 APP="HomelabDashboard"
 var_hostname="${var_hostname:-homelab-dashboard}"
 var_cpu="${var_cpu:-2}"
-var_ram="${var_ram:-1024}"
+var_ram="${var_ram:-2048}"
 var_disk="${var_disk:-4}"
 var_os="${var_os:-debian}"
 var_version="${var_version:-13}"

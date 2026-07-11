@@ -7,6 +7,9 @@
 #
 # Update:
 #   bash lxc-install.sh --update
+#
+# Externe MariaDB i.p.v. lokaal:
+#   HOMELAB_DB_MODE=remote bash lxc-install.sh
 
 set -euo pipefail
 
@@ -17,6 +20,7 @@ SERVICE_NAME="homelab-dashboard"
 CREDENTIALS_DIR="${HOMELAB_CREDENTIALS_DIR:-/root/.homelab-db/credentials}"
 HTTP_PORT="${HOMELAB_HTTP_PORT:-8765}"
 WS_PORT="${HOMELAB_WS_PORT:-8766}"
+DB_MODE="${HOMELAB_DB_MODE:-local}"
 UPDATE_MODE=false
 QUIET=false
 INSTALL_LOG="${HOMELAB_INSTALL_LOG:-/tmp/homelab-lxc-install.log}"
@@ -69,14 +73,14 @@ clone_or_update_repo() {
 }
 
 install_dependencies() {
-  step "[1/6] Systeempackages installeren..."
+  step "[1/7] Systeempackages installeren..."
   export DEBIAN_FRONTEND=noninteractive
   run_quiet apt-get update -qq
-  run_quiet apt-get install -y -qq python3 python3-venv python3-pip git curl openssh-client
+  run_quiet apt-get install -y -qq python3 python3-venv python3-pip git curl openssh-client openssl
 }
 
 setup_venv() {
-  step "[2/6] Python virtualenv voorbereiden..."
+  step "[2/7] Python virtualenv voorbereiden..."
   cd "$APP_DIR"
   if [[ -d ".venv" && ! -f ".venv/bin/activate" ]]; then
     rm -rf .venv
@@ -89,20 +93,20 @@ setup_venv() {
 }
 
 install_python_packages() {
-  step "[3/6] Python dependencies installeren..."
+  step "[3/7] Python dependencies installeren..."
   run_quiet pip install --upgrade pip -q
   run_quiet pip install -r requirements.txt -q
 }
 
 prepare_dirs() {
-  step "[4/6] Mappen en credentials voorbereiden..."
+  step "[4/7] Mappen en credentials voorbereiden..."
   mkdir -p "$CREDENTIALS_DIR" /etc/homelab-dashboard
   chmod 700 "$CREDENTIALS_DIR"
 
-  if [[ ! -f "$CREDENTIALS_DIR/service.json" ]]; then
+  if [[ "$DB_MODE" == "remote" && ! -f "$CREDENTIALS_DIR/service.json" ]]; then
     cp "$APP_DIR/config/service.json.example" "$CREDENTIALS_DIR/service.json"
     chmod 600 "$CREDENTIALS_DIR/service.json"
-    step "MariaDB nog niet geconfigureerd (service.json aangemaakt)"
+    step "Externe MariaDB: vul service.json in of gebruik setup-database.sh"
   fi
 
   if [[ ! -f "$CREDENTIALS_DIR/smtp.json" ]]; then
@@ -111,8 +115,26 @@ prepare_dirs() {
   fi
 }
 
+setup_local_mariadb() {
+  if [[ "$DB_MODE" == "remote" ]]; then
+    return 0
+  fi
+  step "[5/7] MariaDB lokaal installeren..."
+  local script="$APP_DIR/scripts/setup-local-mariadb.sh"
+  if [[ ! -f "$script" ]]; then
+    curl -fsSL "${HOMELAB_REPO_RAW:-https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main}/scripts/setup-local-mariadb.sh" -o /tmp/setup-local-mariadb.sh
+    script="/tmp/setup-local-mariadb.sh"
+  fi
+  chmod +x "$script"
+  HOMELAB_QUIET="$([[ "$QUIET" == true ]] && echo 1 || echo 0)" \
+    HOMELAB_INSTALL_LOG="$INSTALL_LOG" \
+    HOMELAB_CREDENTIALS_DIR="$CREDENTIALS_DIR" \
+    HOMELAB_APP_ROOT="$APP_DIR" \
+    bash "$script"
+}
+
 setup_ssh_dir() {
-  step "[5/6] SSH-map voorbereiden..."
+  step "[6/7] SSH-map voorbereiden..."
   mkdir -p /root/.ssh
   chmod 700 /root/.ssh
   if [[ ! -f /root/.ssh/config ]]; then
@@ -128,17 +150,24 @@ EOF
 }
 
 setup_systemd() {
-  step "[6/6] Systemd service configureren..."
+  step "[7/7] Systemd service configureren..."
   local ip
   ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
   local public_url="${HOMELAB_PUBLIC_URL:-http://${ip:-127.0.0.1}:${HTTP_PORT}/}"
   local service_path="/etc/systemd/system/${SERVICE_NAME}.service"
+  local after_targets="network-online.target"
+  local wants_targets="network-online.target"
+
+  if [[ "$DB_MODE" != "remote" ]]; then
+    after_targets="network-online.target mariadb.service"
+    wants_targets="network-online.target mariadb.service"
+  fi
 
   cat >"$service_path" <<EOF
 [Unit]
 Description=Homelab Dashboard (live logs + SSH)
-After=network-online.target
-Wants=network-online.target
+After=$after_targets
+Wants=$wants_targets
 
 [Service]
 Type=simple
@@ -177,6 +206,7 @@ else
   setup_venv
   install_python_packages
   prepare_dirs
+  setup_local_mariadb
   setup_ssh_dir
   setup_systemd
 fi
@@ -193,16 +223,16 @@ echo "✅ Klaar!"
 echo ""
 echo "Dashboard: http://${IP:-<container-ip>}:${HTTP_PORT}/"
 echo "WebSocket SSH: poort ${WS_PORT}"
+echo "MariaDB: lokaal op 127.0.0.1 (automatisch geconfigureerd)"
 echo "Credentials: $CREDENTIALS_DIR"
 echo ""
-echo "MariaDB alles-in-één (aanbevolen):"
-echo "  bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-database.sh)\""
+echo "Standaard login (eerste start): admin / homelab123"
 echo ""
-echo "Alleen database aanmaken (op MariaDB-host):"
-echo "  bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-database.sh)\" -- --server"
-echo ""
-echo "Standaard login (eerste start, lege DB): admin / homelab123"
-echo ""
+if [[ "$DB_MODE" == "remote" ]]; then
+  echo "Externe MariaDB koppelen:"
+  echo "  bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-database.sh)\""
+  echo ""
+fi
 echo "Handige commando's:"
 echo "  systemctl status $SERVICE_NAME"
 echo "  journalctl -u $SERVICE_NAME -f"
