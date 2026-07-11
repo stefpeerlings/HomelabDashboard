@@ -14,7 +14,11 @@
 set -euo pipefail
 
 REPO_RAW="${HOMELAB_REPO_RAW:-https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main}"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -n "${BASH_SOURCE[0]:-}" ]]; then
+  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+else
+  SCRIPT_DIR="/tmp"
+fi
 APP_DIR="${HOMELAB_APP_ROOT:-/opt/homelab-dashboard}"
 CRED_DIR="${HOMELAB_CREDENTIALS_DIR:-/root/.homelab-db/credentials}"
 SERVICE_JSON="${CRED_DIR}/service.json"
