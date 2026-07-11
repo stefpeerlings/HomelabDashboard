@@ -114,12 +114,12 @@ def _status_remote_exec(prefix: str | None, script: str) -> str | None:
     return f"{prefix} {shlex.quote(script)}"
 
 
-def _status_http_check(label: str, host: str, port: int) -> str:
+def _status_http_check(label: str, host: str, port: int, *, down_word: str = "offline") -> str:
     host_q = shlex.quote(host)
     return (
         f"echo -n '{label} ({host}): '"
         f"; if curl -sk --connect-timeout 4 https://{host_q}:{port}/ >/dev/null 2>&1; "
-        f"then echo online; else echo offline; fi"
+        f"then echo online; else echo {down_word}; fi"
     )
 
 
@@ -138,7 +138,7 @@ def build_status_command(settings: dict | None = None) -> list:
         parts.append(_status_http_check("Proxmox", proxmox_host, 8006))
 
     if status_host_valid(pbs_host):
-        parts.append(_status_http_check("PBS", pbs_host, 8007))
+        parts.append(_status_http_check("PBS", pbs_host, 8007, down_word="uit"))
 
     vm_cmd = (
         "qm list 2>/dev/null | awk 'NR>1 && $1~/^[0-9]+$/"
@@ -5070,14 +5070,22 @@ HTML = r"""<!DOCTYPE html>
     }
 
     function paintStatus(text) {
-      statusEl.textContent = text.trim() || "(geen output)";
-      const low = text.toLowerCase();
-      if (low.includes("offline") || low.includes("mislukt")) {
+      const body = text.trim() || "(geen output)";
+      statusEl.textContent = body;
+      const lines = body.split("\n").map((l) => l.toLowerCase());
+      const proxmoxOffline = lines.some((l) => l.includes("proxmox") && l.includes("offline"));
+      const backupFailed = lines.some((l) => l.includes("backup:") && l.includes("mislukt"));
+      const vzdumpBusy = lines.some((l) => l.includes("backup:") && l.includes("vzdump bezig"));
+
+      if (proxmoxOffline || backupFailed) {
         setStatusState("offline");
-      } else if (low.includes("shutdown mag") || low.includes("backup: ok")) {
-        setStatusState("idle");
-      } else if (low.includes("vzdump bezig")) {
+      } else if (vzdumpBusy) {
         setStatusState("busy");
+      } else if (
+        lines.some((l) => l.includes("shutdown mag") || l.includes("backup: ok")) ||
+        lines.some((l) => l.includes("proxmox") && l.includes("online"))
+      ) {
+        setStatusState("idle");
       } else {
         setStatusState("busy");
       }
