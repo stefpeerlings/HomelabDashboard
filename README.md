@@ -14,54 +14,51 @@ Logs van Proxmox nodes, LXC containers, Docker, PBS en eigen commando's — met 
 
 ## Vereisten
 
-- **MariaDB** (aparte LXC of host) met database `homelab_dashboard`
+- **MariaDB** op een aparte host of LXC (database `homelab_dashboard`)
 - **SSH-toegang** vanaf de dashboard-container naar Proxmox/PBS hosts
 - Poorten **8765** (HTTP) en **8766** (WebSocket SSH)
 
-## Database (MariaDB) — eerst dit
+## Database — apart van het dashboard
 
-Het dashboard slaat panels, SSH-hosts, categorieën en gebruikers op in **MariaDB**.  
-De database draait **niet** in de dashboard-container — alleen een netwerkverbinding ernaartoe.
+Panels, SSH-hosts, categorieën en gebruikers staan in **MariaDB**.  
+Die database hoort **niet** in de dashboard-container zelf — alleen een netwerkverbinding ernaartoe.
 
-### Stap 1 — Database aanmaken (op MariaDB-server/LXC)
+### Nieuw opzetten
 
-Op je MariaDB-host (bijv. CT 130) als root:
+**1. Op je MariaDB-server** (eenmalig):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/scripts/setup-mariadb.sh -o /tmp/setup-mariadb.sh
 bash /tmp/setup-mariadb.sh
 ```
 
-Of handmatig met SQL (`scripts/setup-mariadb.sql` — vervang `CHANGE_ME`).
+Of handmatig via `scripts/setup-mariadb.sql` (vervang `CHANGE_ME` door een sterk wachtwoord).
 
-Dit maakt aan:
-- Database `homelab_dashboard` (utf8mb4)
-- Gebruiker `homelab_dashboard` met toegang vanaf jouw netwerk (standaard `192.168.%`) en `localhost`
-
-### Stap 2 — Credentials op dashboard-container
+**2. Op de dashboard-container** — credentials invullen:
 
 ```bash
 bash /opt/homelab-dashboard/scripts/setup-credentials.sh
 ```
 
-Bestand: `/root/.homelab-db/credentials/service.json`
+Dit schrijft `/root/.homelab-db/credentials/service.json`.
 
-### Stap 3 — Verbinding testen
+**3. Verbinding controleren:**
 
 ```bash
 bash /opt/homelab-dashboard/scripts/test-db-connection.sh
 ```
 
-### Wat gebeurt bij eerste start?
+### Al een database?
 
-De app maakt automatisch tabellen aan (`settings`, `panels`, `ssh_hosts`, `dashboard_users`, …).  
-Bij een **lege** database: standaardinstellingen + admin-gebruiker (wachtwoord in `/root/.homelab-db/credentials/dashboard-login.json` of install-log).  
-Bij een **bestaande** database: alle data blijft behouden (draai liever maar één dashboard tegelijk per database).
+Draait `homelab_dashboard` al op een MariaDB-server die je elders beheert?  
+Dan hoef je geen data te migreren: vul op de nieuwe dashboard-container alleen `service.json` in met dezelfde host, gebruiker en database. Alles staat dan meteen klaar.
 
-### Bestaande MariaDB hergebruiken
+### Eerste start van de app
 
-Heb je al een MariaDB-server met database `homelab_dashboard`?  
-Vul alleen `service.json` in op de dashboard-container — geen data-migratie nodig.
+- Tabellen worden automatisch aangemaakt als ze nog niet bestaan
+- **Lege database:** standaardinstellingen + gebruiker `admin` (wachtwoord `homelab123` — direct wijzigen)
+- **Bestaande database:** alle panels en gebruikers blijven behouden
+- Draai liever **één** dashboard tegelijk per database
 
 ## Snelle installatie (LXC)
 
@@ -81,12 +78,16 @@ In de container als root:
 bash <(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-install.sh)
 ```
 
-Zie [Database (MariaDB)](#database-mariadb--eerst-dit) hierboven voor de volledige DB-setup.
+Werk daarna de database-stappen hierboven af.
 
 ### Eerste login
 
-- Gebruiker: `admin`
-- Wachtwoord: zie `dashboard-login.json` na eerste start (of stel `HOMELAB_BOOTSTRAP_PASSWORD` in vóór installatie)
+| | |
+|---|---|
+| Gebruiker | `admin` |
+| Wachtwoord | `homelab123` |
+
+Wijzig dit meteen na de eerste login via **Account → Wachtwoord**.
 
 ## Update
 
@@ -100,16 +101,16 @@ bash /opt/homelab-dashboard/lxc-install.sh --update
 
 ```
 homelab-dashboard/
-├── homelab_dashboard.py   # Hoofdapplicatie
-├── static/                # xterm.js, logo
-├── lxc-install.sh         # Installatie in LXC
+├── homelab_dashboard.py    # Hoofdapplicatie
+├── static/                 # xterm.js, logo
+├── lxc-install.sh          # Installatie in LXC
 ├── ct/homelab-dashboard.sh # Proxmox community-scripts installer
-├── config/                # Voorbeeld-configs (geen secrets)
+├── config/                 # Voorbeeld-configs (geen secrets)
 └── scripts/
-    ├── setup-mariadb.sh      # Database aanmaken (op MariaDB-host)
-    ├── setup-mariadb.sql     # SQL-variant
-    ├── setup-credentials.sh  # service.json op dashboard
-    └── test-db-connection.sh # Verbinding testen
+    ├── setup-mariadb.sh       # Database aanmaken (op MariaDB-host)
+    ├── setup-mariadb.sql
+    ├── setup-credentials.sh   # service.json op dashboard
+    └── test-db-connection.sh
 ```
 
 ## Omgevingsvariabelen
@@ -120,11 +121,6 @@ homelab-dashboard/
 | `HOMELAB_CREDENTIALS_DIR` | `/root/.homelab-db/credentials` | Secrets |
 | `HOMELAB_PUBLIC_URL` | auto | URL voor e-mail links |
 | `HOMELAB_STATIC_DIR` | `$APP_ROOT/static` | Statische bestanden |
-| `HOMELAB_BOOTSTRAP_PASSWORD` | (random) | Eerste admin-wachtwoord |
-| `HOMELAB_PBS_SSH` | `root@pbs` | PBS SSH-target voor backup-logs |
-| `HOMELAB_LOCAL_HOSTS` | `localhost,127.0.0.1` | Hosts voor lokale Proxmox/Docker |
-
-Zie `config/homelab.env.example` voor alle opties.
 
 ## SSH-keys
 

@@ -100,7 +100,7 @@ setup_ssh_dir() {
     cat >/root/.ssh/config <<'EOF'
 # Voeg Proxmox/PBS hosts toe, bijv.:
 # Host proxmox.lan
-#   HostName proxmox.lan
+#   HostName 10.0.30.3
 #   User root
 #   IdentityFile ~/.ssh/id_ed25519
 EOF
@@ -178,7 +178,7 @@ echo "Credentials + test op deze container:"
 echo "  bash $APP_DIR/scripts/setup-credentials.sh"
 echo "  bash $APP_DIR/scripts/test-db-connection.sh"
 echo ""
-echo "Eerste login (lege DB): admin — wachtwoord in $CREDENTIALS_DIR/dashboard-login.json"
+echo "Standaard login (eerste start, lege DB): admin / homelab123"
 echo ""
 echo "Handige commando's:"
 echo "  systemctl status $SERVICE_NAME"
