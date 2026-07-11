@@ -127,15 +127,40 @@ def build_status_command(settings: dict | None = None) -> list:
     settings = settings or {}
     proxmox_host = (settings.get("status_proxmox_host") or "").strip()
     pbs_host = (settings.get("status_pbs_host") or "").strip()
+    node_name = (settings.get("status_node_name") or "").strip()
     px_prefix = proxmox_ssh_shell_prefix(proxmox_host) if proxmox_host else None
 
-    parts = [
+    parts: list[str] = []
+    resource_cmds = [
         "free -m 2>/dev/null | awk '/^Mem:/{printf \"RAM: %dM / %dM\\n\", $3,$2}'",
         "df -h / 2>/dev/null | awk 'NR==2{printf \"Disk /: %s (%s van %s)\\n\", $5,$3,$2}'",
     ]
+    uptime_cmd = "uptime -p 2>/dev/null || uptime"
 
     if status_host_valid(proxmox_host):
+        if node_name:
+            parts.append(f'echo "Node: {node_name} ({proxmox_host})"')
+        elif px_prefix is not None:
+            hn_cmd = _status_remote_exec(px_prefix, "hostname -s 2>/dev/null || hostname")
+            if hn_cmd:
+                parts.append(
+                    f'NODE=$({hn_cmd} 2>/dev/null | head -1 | tr -d "\\r\\n"); '
+                    f'echo "Node: ${{NODE:-{proxmox_host}}} ({proxmox_host})"'
+                )
+        else:
+            parts.append(f'echo "Node: {proxmox_host}"')
+
+        if px_prefix is not None:
+            for cmd in resource_cmds:
+                remote = _status_remote_exec(px_prefix, cmd)
+                if remote:
+                    parts.append(remote)
+        else:
+            parts.extend(resource_cmds)
+
         parts.append(_status_http_check("Proxmox", proxmox_host, 8006))
+    else:
+        parts.extend(resource_cmds)
 
     if status_host_valid(pbs_host):
         parts.append(_status_http_check("PBS", pbs_host, 8007, down_word="uit"))
@@ -173,7 +198,12 @@ def build_status_command(settings: dict | None = None) -> list:
         if remote:
             parts.append(remote)
 
-    parts.append("uptime -p 2>/dev/null || uptime")
+    if px_prefix is not None:
+        remote_uptime = _status_remote_exec(px_prefix, uptime_cmd)
+        if remote_uptime:
+            parts.append(remote_uptime)
+    else:
+        parts.append(uptime_cmd)
     return ["bash", "-lc", "\n".join(parts)]
 SESSION_DAYS = 14
 RESET_TOKEN_HOURS = 2
@@ -444,6 +474,12 @@ def ensure_dashboard_schema_updates(conn) -> None:
         _execute(
             conn,
             "INSERT INTO settings (setting_key, setting_value) VALUES ('status_pbs_host', '') "
+            "ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",
+        )
+    if not _fetchone(conn, "SELECT setting_value FROM settings WHERE setting_key='status_node_name'"):
+        _execute(
+            conn,
+            "INSERT INTO settings (setting_key, setting_value) VALUES ('status_node_name', '') "
             "ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)",
         )
 
@@ -1130,6 +1166,7 @@ def _seed_default_settings(conn) -> None:
         "status_label": DEFAULT_CONFIG["status"]["label"],
         "status_proxmox_host": "",
         "status_pbs_host": "",
+        "status_node_name": "",
         "status_command": json.dumps(build_status_command()),
         "status_interval_seconds": str(DEFAULT_CONFIG["status"]["interval_seconds"]),
         "log_categories": json.dumps(DEFAULT_LOG_CATEGORIES),
@@ -1153,11 +1190,13 @@ def write_config_to_db(conn, config: dict) -> None:
         "status_label": config.get("status", {}).get("label", DEFAULT_CONFIG["status"]["label"]),
         "status_proxmox_host": config.get("status", {}).get("proxmox_host", ""),
         "status_pbs_host": config.get("status", {}).get("pbs_host", ""),
+        "status_node_name": config.get("status", {}).get("node_name", ""),
         "status_command": json.dumps(
             build_status_command(
                 {
                     "status_proxmox_host": config.get("status", {}).get("proxmox_host", ""),
                     "status_pbs_host": config.get("status", {}).get("pbs_host", ""),
+                    "status_node_name": config.get("status", {}).get("node_name", ""),
                 }
             )
         ),
@@ -1241,6 +1280,7 @@ def read_config_from_db(conn) -> dict:
 
     proxmox_host = settings.get("status_proxmox_host", "")
     pbs_host = settings.get("status_pbs_host", "")
+    node_name = settings.get("status_node_name", "")
     status_command_list = build_status_command(settings)
 
     panels = [
@@ -1267,6 +1307,7 @@ def read_config_from_db(conn) -> dict:
             "label": settings.get("status_label", DEFAULT_CONFIG["status"]["label"]),
             "proxmox_host": proxmox_host,
             "pbs_host": pbs_host,
+            "node_name": node_name,
             "command": status_command_list,
             "interval_seconds": int(
                 settings.get("status_interval_seconds", DEFAULT_CONFIG["status"]["interval_seconds"])
@@ -1282,6 +1323,7 @@ def update_status_settings(config: dict, payload: dict) -> dict:
     label = str(payload.get("label", "")).strip() or DEFAULT_CONFIG["status"]["label"]
     proxmox_host = str(payload.get("proxmox_host", "")).strip()
     pbs_host = str(payload.get("pbs_host", "")).strip()
+    node_name = str(payload.get("node_name", "")).strip()
     try:
         interval = int(payload.get("interval_seconds", DEFAULT_CONFIG["status"]["interval_seconds"]))
     except (TypeError, ValueError) as exc:
@@ -1292,11 +1334,14 @@ def update_status_settings(config: dict, payload: dict) -> dict:
         raise ValueError("Ongeldig Proxmox host/IP")
     if pbs_host and not status_host_valid(pbs_host):
         raise ValueError("Ongeldig PBS host/IP")
+    if node_name and not status_host_valid(node_name):
+        raise ValueError("Ongeldig node naam")
 
     status_settings = {
         "status_label": label,
         "status_proxmox_host": proxmox_host,
         "status_pbs_host": pbs_host,
+        "status_node_name": node_name,
         "status_interval_seconds": str(interval),
     }
     status_settings["status_command"] = json.dumps(build_status_command(status_settings))
@@ -1323,6 +1368,7 @@ def update_status_settings(config: dict, payload: dict) -> dict:
             "label": label,
             "proxmox_host": proxmox_host,
             "pbs_host": pbs_host,
+            "node_name": node_name,
             "command": json.loads(status_settings["status_command"]),
             "interval_seconds": interval,
         }
@@ -2396,6 +2442,7 @@ def public_config(config: dict) -> dict:
             "label": config.get("status", {}).get("label", "Status"),
             "proxmox_host": config.get("status", {}).get("proxmox_host", ""),
             "pbs_host": config.get("status", {}).get("pbs_host", ""),
+            "node_name": config.get("status", {}).get("node_name", ""),
             "interval_seconds": config.get("status", {}).get("interval_seconds", 5),
         },
         "panels": [
@@ -3427,13 +3474,18 @@ HTML = r"""<!DOCTYPE html>
       <div class="modal-body">
         <form id="form-status-edit" autocomplete="off">
           <div class="field">
-            <label>Titel</label>
-            <input name="label" id="status-edit-label" placeholder="Status" required>
+            <label>Node naam</label>
+            <input name="node_name" id="status-edit-node" placeholder="minilab">
+            <small>Staat bovenaan de statusbalk. Leeg = hostname ophalen via SSH.</small>
           </div>
           <div class="field">
             <label>Proxmox host / IP</label>
             <input name="proxmox_host" id="status-edit-proxmox" placeholder="minilab of 10.0.30.3">
-            <small>Online-check (8006), VM/LXC-telling en backup-status via SSH. Leeg = overslaan.</small>
+            <small>Online-check (8006), RAM/disk, VM/LXC en backup via SSH. Leeg = overslaan.</small>
+          </div>
+          <div class="field" style="display:none">
+            <label>Titel</label>
+            <input name="label" id="status-edit-label" placeholder="Status" value="Status">
           </div>
           <div class="field">
             <label>PBS host / IP</label>
@@ -3684,6 +3736,13 @@ HTML = r"""<!DOCTYPE html>
     const updatedEl = document.getElementById("updated");
     const intervalEl = document.getElementById("interval");
     const statusLabelEl = document.getElementById("status-label");
+
+    function statusDisplayLabel(status) {
+      const s = status || {};
+      if (s.node_name) return s.node_name;
+      if (s.proxmox_host) return s.proxmox_host;
+      return s.label || "Status";
+    }
     const panelCountEl = document.getElementById("panel-count");
     const sshCountEl = document.getElementById("ssh-count");
     const panelsEl = document.getElementById("panels");
@@ -5311,6 +5370,7 @@ HTML = r"""<!DOCTYPE html>
     function openEditStatusModal() {
       if (!formStatusEditEl) return;
       document.getElementById("status-edit-label").value = config.status?.label || "Status";
+      document.getElementById("status-edit-node").value = config.status?.node_name || "";
       document.getElementById("status-edit-proxmox").value = config.status?.proxmox_host || "";
       document.getElementById("status-edit-pbs").value = config.status?.pbs_host || "";
       document.getElementById("status-edit-interval").value = String(config.status?.interval_seconds || 5);
@@ -5336,7 +5396,7 @@ HTML = r"""<!DOCTYPE html>
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Opslaan mislukt");
         config.status = data.status;
-        statusLabelEl.textContent = config.status?.label || "Status";
+        statusLabelEl.textContent = statusDisplayLabel(config.status);
         const interval = (config.status?.interval_seconds || 5) * 1000;
         if (statusTimer) clearInterval(statusTimer);
         statusTimer = setInterval(refreshStatus, interval);
@@ -5647,7 +5707,7 @@ HTML = r"""<!DOCTYPE html>
 
       titleEl.textContent = config.title || "Homelab Dashboard";
       document.title = config.title || "Homelab Dashboard";
-      statusLabelEl.textContent = config.status?.label || "Status";
+      statusLabelEl.textContent = statusDisplayLabel(config.status);
       const interval = (config.status?.interval_seconds || 5) * 1000;
       intervalEl.textContent = (interval / 1000) + "s";
       panelCountEl.textContent = String(config.panels?.length || 0);
@@ -6173,6 +6233,7 @@ class Handler(BaseHTTPRequestHandler):
                 status = update_status_settings(config, payload)
                 self._send_json({"ok": True, "status": {
                     "label": status.get("label", "Status"),
+                    "node_name": status.get("node_name", ""),
                     "proxmox_host": status.get("proxmox_host", ""),
                     "pbs_host": status.get("pbs_host", ""),
                     "interval_seconds": status.get("interval_seconds", 5),
