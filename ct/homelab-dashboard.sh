@@ -36,6 +36,7 @@ fetch_repo_file() {
 
 APP="HomelabDashboard"
 var_hostname="${var_hostname:-homelab-dashboard}"
+var_brg="${var_brg:-${HOMELAB_BRIDGE:-vmbr1}}"
 var_cpu="${var_cpu:-2}"
 var_ram="${var_ram:-1024}"
 var_disk="${var_disk:-4}"
@@ -89,7 +90,7 @@ function default_settings() {
   DISK_SIZE="$var_disk"
   CORE_COUNT="$var_cpu"
   RAM_SIZE="$var_ram"
-  BRG="vmbr0"
+  BRG="${var_brg:-vmbr1}"
   NET="dhcp"
   GATE=""
   APT_CACHER=""
