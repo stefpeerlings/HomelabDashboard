@@ -60,6 +60,10 @@ SMTP_CONFIG_PATH = CREDENTIALS_DIR / "smtp.json"
 STATIC_DIR = _resolve_static_dir(APP_ROOT)
 PUBLIC_DASHBOARD_URL = os.environ.get("HOMELAB_PUBLIC_URL", "").strip()
 SESSION_COOKIE = "homelab_session"
+PASSWORD_RESET_UNAVAILABLE_MSG = (
+    "Wachtwoord reset via e-mail is nog niet beschikbaar. "
+    "Neem contact op met een beheerder."
+)
 
 
 def resolve_public_dashboard_url() -> str:
@@ -529,7 +533,7 @@ def create_password_reset(email: str) -> bool:
             conn.close()
     cfg = load_smtp_config()
     if not cfg:
-        raise RuntimeError("E-mail is niet ingesteld")
+        raise RuntimeError(PASSWORD_RESET_UNAVAILABLE_MSG)
     base = cfg["dashboard_url"].rstrip("/")
     reset_url = f"{base}/reset?token={token}"
     body = (
@@ -4111,7 +4115,7 @@ HTML = r"""<!DOCTYPE html>
       forgotErrorEl.textContent = "";
       forgotErrorEl.style.color = "";
       if (!authState.password_reset_enabled) {
-        forgotErrorEl.textContent = "E-mail is niet ingesteld";
+        forgotErrorEl.textContent = "__PASSWORD_RESET_UNAVAILABLE__";
         return;
       }
       try {
@@ -4598,7 +4602,7 @@ HTML = r"""<!DOCTYPE html>
     loginForgotEl.addEventListener("click", () => {
       if (!authState.password_reset_enabled) {
         loginErrorEl.style.color = "";
-        loginErrorEl.textContent = "E-mail is niet ingesteld";
+        loginErrorEl.textContent = "__PASSWORD_RESET_UNAVAILABLE__";
         return;
       }
       showLoginGate(true, "forgot");
@@ -5899,6 +5903,7 @@ HTML = r"""<!DOCTYPE html>
   </script>
 </body>
 </html>"""
+HTML = HTML.replace("__PASSWORD_RESET_UNAVAILABLE__", PASSWORD_RESET_UNAVAILABLE_MSG)
 
 
 class Handler(BaseHTTPRequestHandler):
