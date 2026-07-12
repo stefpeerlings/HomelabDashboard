@@ -50,11 +50,9 @@ silent curl -fsSL "${REPO_RAW}/lxc-install.sh" -o "$install_script"
 chmod +x "$install_script"
 msg_ok
 
-msg_info "Homelab Dashboard bijwerken..."
 HOMELAB_UI=community VERBOSE="$VERBOSE" LOG_FILE="$LOG_FILE" INSTALL_LOG="$LOG_FILE" \
   bash "$install_script" --update
 rm -f "$install_script"
-msg_ok
 
 msg_info "Overbodige pakketten opruimen..."
 export DEBIAN_FRONTEND=noninteractive
