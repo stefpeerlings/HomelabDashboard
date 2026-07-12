@@ -2,35 +2,22 @@
 #
 # Homelab Dashboard - update (community-script layout)
 #
+# In een LXC container:
 #   bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-update.sh)"
 #
 # Vanaf Proxmox host:
-#   pct exec <CTID> -- bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-update.sh)"
+#   pct exec <CTID> -t -- bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-update.sh)"
 
-set -euo pipefail
+source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func)
 
 REPO_RAW="${HOMELAB_REPO_RAW:-https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main}"
-APP_DIR="${HOMELAB_DIR:-/opt/homelab-dashboard}"
-HTTP_PORT="${HOMELAB_HTTP_PORT:-8765}"
-COMMUNITY_BASE="https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc"
+APP="Homelab Dashboard"
+NSAPP="homelab-dashboard"
+var_cpu="${var_cpu:-2}"
+var_ram="${var_ram:-2048}"
+var_disk="${var_disk:-4}"
 
-if command -v curl >/dev/null 2>&1; then
-  # shellcheck disable=SC1091
-  source <(curl -fsSL "${COMMUNITY_BASE}/core.func") 2>/dev/null || true
-  # shellcheck disable=SC1091
-  source <(curl -fsSL "${COMMUNITY_BASE}/error_handler.func") 2>/dev/null || true
-  load_functions 2>/dev/null || true
-  catch_errors 2>/dev/null || true
-  color 2>/dev/null || true
-fi
-
-if ! declare -F msg_info >/dev/null 2>&1; then
-  msg_info() { echo "➜ $*"; }
-  msg_ok() { echo "✓ $*"; }
-  msg_error() { echo "✖ $*" >&2; exit 1; }
-fi
-
-header_info() {
+function header_info {
   clear
   cat <<"EOF"
  _   _                      _       _
@@ -48,30 +35,44 @@ header_info() {
 EOF
 }
 
-header_info
+header_info "$APP"
+variables
+color
+catch_errors
 
-if [[ "$(id -u)" -ne 0 ]]; then
-  msg_error "Dit script moet als root worden uitgevoerd"
-  exit 1
-fi
+function update_script() {
+  local app_dir="${HOMELAB_DIR:-/opt/homelab-dashboard}"
+  local http_port="${HOMELAB_HTTP_PORT:-8765}"
+  local install_script install_log
 
-if [[ ! -f "${APP_DIR}/homelab_dashboard.py" ]]; then
-  msg_error "Geen Homelab Dashboard installatie gevonden in ${APP_DIR}"
-  exit 1
-fi
+  header_info
+  check_container_storage
+  check_container_resources
 
-msg_info "Updating Homelab Dashboard"
+  if [[ ! -f "${app_dir}/homelab_dashboard.py" ]]; then
+    msg_error "No ${APP} Installation Found!"
+    exit
+  fi
 
-INSTALL_SCRIPT="$(mktemp /tmp/homelab-lxc-update.XXXXXX.sh)"
-trap 'rm -f "$INSTALL_SCRIPT"' EXIT
-curl -fsSL "${REPO_RAW}/lxc-install.sh" -o "$INSTALL_SCRIPT"
-chmod +x "$INSTALL_SCRIPT"
-HOMELAB_UI=community bash "$INSTALL_SCRIPT" --update
+  install_log="/root/.homelab-update-$(date +%Y%m%d_%H%M%S).log"
+  export INSTALL_LOG="$install_log"
 
-IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
-msg_ok "Updated successfully!"
-if [[ -n "${GATEWAY:-}" && -n "${BGN:-}" && -n "${CL:-}" ]]; then
-  echo -e "${GATEWAY}${BGN}http://${IP:-<container-ip>}:${HTTP_PORT}${CL}"
-else
-  echo "http://${IP:-<container-ip>}:${HTTP_PORT}"
-fi
+  install_script="$(mktemp /tmp/homelab-lxc-update.XXXXXX.sh)"
+  trap 'rm -f "$install_script"' RETURN
+
+  msg_info "Updating ${APP}"
+  $STD curl -fsSL "${REPO_RAW}/lxc-install.sh" -o "$install_script"
+  chmod +x "$install_script"
+
+  if ! HOMELAB_UI=community VERBOSE="${VERBOSE:-no}" INSTALL_LOG="$install_log" \
+    bash "$install_script" --update; then
+    msg_error "Update failed (log: ${install_log})"
+    exit 1
+  fi
+
+  msg_ok "Updated successfully!"
+  local ip="${LOCAL_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
+  echo -e "${GATEWAY}${BGN}http://${ip:-<container-ip>}:${http_port}${CL}"
+}
+
+start

@@ -13,6 +13,21 @@
 
 set -euo pipefail
 
+COMMUNITY_BASE="https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc"
+if [[ "${HOMELAB_UI:-}" == "community" ]]; then
+  if command -v curl >/dev/null 2>&1; then
+    # shellcheck disable=SC1091
+    source <(curl -fsSL "${COMMUNITY_BASE}/core.func") 2>/dev/null || true
+    # shellcheck disable=SC1091
+    source <(curl -fsSL "${COMMUNITY_BASE}/error_handler.func") 2>/dev/null || true
+    load_functions 2>/dev/null || true
+    catch_errors 2>/dev/null || true
+    color 2>/dev/null || true
+    set_std_mode 2>/dev/null || true
+  fi
+  export INSTALL_LOG="${INSTALL_LOG:-/root/.homelab-update.log}"
+fi
+
 APP_DIR="${HOMELAB_DIR:-/opt/homelab-dashboard}"
 REPO_URL="${HOMELAB_REPO:-https://github.com/stefpeerlings/HomelabDashboard.git}"
 REPO_BRANCH="${HOMELAB_BRANCH:-main}"
@@ -55,7 +70,13 @@ step() {
 }
 
 run_quiet() {
-  if [[ "$QUIET" == true ]]; then
+  if [[ "$UI_MODE" == "community" ]] && declare -F silent >/dev/null 2>&1; then
+    if [[ "${VERBOSE:-no}" == "yes" ]]; then
+      "$@"
+    else
+      $STD "$@"
+    fi
+  elif [[ "$QUIET" == true ]]; then
     "$@" >>"$INSTALL_LOG" 2>&1
   else
     "$@"
@@ -77,6 +98,19 @@ fi
 clone_or_update_repo() {
   if [[ -d "$APP_DIR/.git" ]]; then
     step "Repository bijwerken..."
+    if [[ "$UI_MODE" == "community" && "$UPDATE_MODE" == true ]]; then
+      local local_rev remote_rev
+      run_quiet git -C "$APP_DIR" fetch origin "$REPO_BRANCH"
+      local_rev="$(git -C "$APP_DIR" rev-parse HEAD)"
+      remote_rev="$(git -C "$APP_DIR" rev-parse "origin/${REPO_BRANCH}")"
+      if [[ "$local_rev" == "$remote_rev" ]]; then
+        ui_ok "Homelab Dashboard is already up-to-date"
+        return 0
+      fi
+      run_quiet git -C "$APP_DIR" pull origin "$REPO_BRANCH"
+      ui_ok "Pulled latest GitHub release"
+      return 0
+    fi
     run_quiet git -C "$APP_DIR" pull origin "$REPO_BRANCH"
   else
     step "Repository clonen..."
@@ -89,7 +123,7 @@ install_dependencies() {
   step "[1/7] Systeempackages installeren..."
   export DEBIAN_FRONTEND=noninteractive
   run_quiet apt-get update -qq
-  run_quiet apt-get install -y -qq python3 python3-venv python3-pip git curl openssh-client openssl
+  run_quiet apt-get install -y -qq python3 python3-venv python3-pip git curl openssh-client openssl whiptail
 }
 
 setup_venv() {
@@ -238,14 +272,17 @@ if [[ "$UPDATE_MODE" == true ]]; then
   fi
   ui_info "Pulling latest GitHub release"
   clone_or_update_repo
-  ui_ok "Pulled latest GitHub release"
   ui_info "Updating Python environment"
   setup_venv
   install_python_packages
   ui_ok "Updated Python environment"
   ui_info "Restarting Homelab Dashboard"
   setup_systemd
-  systemctl restart "$SERVICE_NAME"
+  if [[ "$UI_MODE" == "community" ]] && declare -F silent >/dev/null 2>&1 && [[ "${VERBOSE:-no}" != "yes" ]]; then
+    $STD systemctl restart "$SERVICE_NAME"
+  else
+    systemctl restart "$SERVICE_NAME"
+  fi
   ui_ok "Restarted Homelab Dashboard"
   if [[ "$UI_MODE" == "community" ]]; then
     exit 0
