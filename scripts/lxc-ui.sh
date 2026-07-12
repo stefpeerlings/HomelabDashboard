@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Homelab Dashboard — Verbose / Silent updater UI
 
-[[ -n "${_HOMELAB_LXC_UI_LOADED:-}" ]] && return 0
+if [[ -z "${_HOMELAB_LXC_UI_LOADED:-}" ]]; then
 _HOMELAB_LXC_UI_LOADED=1
 
 CL=$(echo -e "\033[0K")
@@ -109,3 +109,5 @@ show_header() {
   echo -e "${PP}└${line}┘${BGN_OFF}"
   echo ""
 }
+
+fi

@@ -16,9 +16,6 @@ HTTP_PORT="${HOMELAB_HTTP_PORT:-8765}"
 
 load_ui() {
   local ui_script="${HOMELAB_UI_SCRIPT:-}"
-  if [[ -z "$ui_script" && -f "${APP_DIR}/scripts/lxc-ui.sh" ]]; then
-    ui_script="${APP_DIR}/scripts/lxc-ui.sh"
-  fi
   if [[ -n "$ui_script" && -f "$ui_script" ]]; then
     # shellcheck disable=SC1090
     source "$ui_script"
