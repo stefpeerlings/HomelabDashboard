@@ -102,20 +102,29 @@ if [[ -f "homelab_dashboard.py" && -f "requirements.txt" ]]; then
   APP_DIR="$(pwd)"
 fi
 
+pull_repo_latest() {
+  local local_rev remote_rev
+  run_quiet git -C "$APP_DIR" fetch origin "$REPO_BRANCH"
+  local_rev="$(git -C "$APP_DIR" rev-parse HEAD)"
+  remote_rev="$(git -C "$APP_DIR" rev-parse "origin/${REPO_BRANCH}")"
+  if [[ "$local_rev" == "$remote_rev" ]]; then
+    return 1
+  fi
+  # Overschrijf lokale wijzigingen (bv. handmatig gekopieerde bestanden); credentials staan buiten de repo
+  run_quiet git -C "$APP_DIR" reset --hard "origin/${REPO_BRANCH}"
+  run_quiet git -C "$APP_DIR" clean -fd
+  return 0
+}
+
 clone_or_update_repo() {
   if [[ -d "$APP_DIR/.git" ]]; then
     step "Repository bijwerken..."
-    if [[ "$UI_MODE" == "community" && "$UPDATE_MODE" == true ]]; then
-      local local_rev remote_rev
-      run_quiet git -C "$APP_DIR" fetch origin "$REPO_BRANCH"
-      local_rev="$(git -C "$APP_DIR" rev-parse HEAD)"
-      remote_rev="$(git -C "$APP_DIR" rev-parse "origin/${REPO_BRANCH}")"
-      if [[ "$local_rev" == "$remote_rev" ]]; then
-        HOMELAB_REPO_STATUS="Applicatie is up-to-date"
-        return 0
+    if [[ "$UPDATE_MODE" == true ]]; then
+      if pull_repo_latest; then
+        [[ "$UI_MODE" == "community" ]] && HOMELAB_REPO_STATUS="Applicatiebestanden gesynchroniseerd"
+      else
+        [[ "$UI_MODE" == "community" ]] && HOMELAB_REPO_STATUS="Applicatie is up-to-date"
       fi
-      run_quiet git -C "$APP_DIR" pull origin "$REPO_BRANCH"
-      HOMELAB_REPO_STATUS="Applicatiebestanden gesynchroniseerd"
       return 0
     fi
     run_quiet git -C "$APP_DIR" pull origin "$REPO_BRANCH"
