@@ -529,7 +529,10 @@ def create_password_reset(email: str) -> bool:
             conn.close()
     cfg = load_smtp_config()
     if not cfg:
-        raise RuntimeError("E-mail is niet geconfigureerd")
+        raise RuntimeError(
+            "SMTP is nog niet ingesteld. Een beheerder moet "
+            f"{SMTP_CONFIG_PATH} configureren (enabled: true)."
+        )
     base = cfg["dashboard_url"].rstrip("/")
     reset_url = f"{base}/reset?token={token}"
     body = (
@@ -982,15 +985,37 @@ def kick_dashboard_user(username: str) -> dict:
             conn.close()
 
 
-def password_reset_enabled() -> bool:
+def password_reset_smtp_ready() -> bool:
     try:
         return load_smtp_config() is not None
     except Exception:
         return False
 
 
+def any_user_has_reset_email() -> bool:
+    try:
+        init_db()
+        with _db_lock:
+            conn = get_db_connection()
+            try:
+                row = _fetchone(
+                    conn,
+                    "SELECT 1 AS ok FROM dashboard_users "
+                    "WHERE enabled=1 AND email IS NOT NULL AND TRIM(email)<>'' LIMIT 1",
+                )
+                return row is not None
+            finally:
+                conn.close()
+    except Exception:
+        return False
+
+
+def login_forgot_password_visible() -> bool:
+    return password_reset_smtp_ready() or any_user_has_reset_email()
+
+
 def auth_status_payload(handler) -> dict:
-    reset_enabled = password_reset_enabled()
+    reset_enabled = login_forgot_password_visible()
     if not auth_enabled():
         return {
             "auth_enabled": False,
@@ -4054,7 +4079,9 @@ HTML = r"""<!DOCTYPE html>
     }
 
     function updateForgotButton() {
-      loginForgotEl.hidden = !authState.password_reset_enabled;
+      const show = authState.auth_enabled && authState.password_reset_enabled;
+      loginForgotEl.hidden = !show;
+      loginForgotEl.style.visibility = show ? "visible" : "hidden";
     }
 
     function toggleAccountMenu(open) {
