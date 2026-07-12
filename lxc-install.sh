@@ -103,11 +103,12 @@ if [[ -f "homelab_dashboard.py" && -f "requirements.txt" ]]; then
 fi
 
 pull_repo_latest() {
-  local local_rev remote_rev
+  local local_rev remote_rev dirty
   run_quiet git -C "$APP_DIR" fetch origin "$REPO_BRANCH"
-  local_rev="$(git -C "$APP_DIR" rev-parse HEAD)"
   remote_rev="$(git -C "$APP_DIR" rev-parse "origin/${REPO_BRANCH}")"
-  if [[ "$local_rev" == "$remote_rev" ]]; then
+  local_rev="$(git -C "$APP_DIR" rev-parse HEAD)"
+  dirty="$(git -C "$APP_DIR" status --porcelain)"
+  if [[ "$local_rev" == "$remote_rev" && -z "$dirty" ]]; then
     return 1
   fi
   # Overschrijf lokale wijzigingen (bv. handmatig gekopieerde bestanden); credentials staan buiten de repo

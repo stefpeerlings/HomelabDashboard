@@ -213,6 +213,12 @@ function update_script() {
   install_script="$(mktemp /tmp/homelab-lxc-update.XXXXXX.sh)"
   install_log="${INSTALL_LOG:-/root/.homelab-update.log}"
 
+  if [[ -d /opt/homelab-dashboard/.git ]]; then
+    $STD git -C /opt/homelab-dashboard fetch origin main
+    $STD git -C /opt/homelab-dashboard reset --hard origin/main
+    $STD git -C /opt/homelab-dashboard clean -fd
+  fi
+
   $STD curl -fsSL "${RAW_BASE}/lxc-install.sh" -o "$install_script"
   chmod +x "$install_script"
 
