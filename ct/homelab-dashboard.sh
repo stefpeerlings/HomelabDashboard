@@ -118,10 +118,17 @@ function install_dashboard_in_ct() {
   proxmox_target="${pve_ip:-$pve_name}"
 
   if [[ "$mode" == "--update" ]]; then
-    curl -fsSL "${RAW_BASE}/lxc-update.sh" -o "$install_script"
-  else
-    curl -fsSL "${RAW_BASE}/lxc-install.sh" -o "$install_script"
+    if ! pct exec "$CTID" -- bash -c "$(curl -fsSL "${RAW_BASE}/lxc-update.sh")" 2>&1 | tee -a "$install_log"; then
+      msg_error "Update failed (log: ${install_log})"
+      tail -20 "$install_log" || true
+      exit 1
+    fi
+    rm -f "$install_script"
+    pct set "$CTID" -tags homelab-dashboard
+    return 0
   fi
+
+  curl -fsSL "${RAW_BASE}/lxc-install.sh" -o "$install_script"
   pct push "$CTID" "$install_script" /tmp/homelab-update.sh
   pct exec "$CTID" -- chmod +x /tmp/homelab-update.sh
 
@@ -215,7 +222,6 @@ function update_script() {
   fi
 
   install_dashboard_in_ct --update
-  msg_ok "Updated successfully!"
   exit
 }
 

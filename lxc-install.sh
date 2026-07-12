@@ -23,6 +23,7 @@ WS_PORT="${HOMELAB_WS_PORT:-8766}"
 DB_MODE="${HOMELAB_DB_MODE:-local}"
 UPDATE_MODE=false
 QUIET=false
+UI_MODE="${HOMELAB_UI:-}"
 INSTALL_LOG="${HOMELAB_INSTALL_LOG:-/tmp/homelab-lxc-install.log}"
 
 if [[ "${HOMELAB_QUIET:-}" == "1" ]]; then
@@ -33,10 +34,22 @@ if [[ "${1:-}" == "--update" || "${1:-}" == "-u" ]]; then
   UPDATE_MODE=true
 fi
 
+ui_info() {
+  if [[ "$UI_MODE" == "community" ]] && declare -F msg_info >/dev/null 2>&1; then
+    msg_info "$*"
+  fi
+}
+
+ui_ok() {
+  if [[ "$UI_MODE" == "community" ]] && declare -F msg_ok >/dev/null 2>&1; then
+    msg_ok "$*"
+  fi
+}
+
 step() {
   if [[ "$QUIET" == true ]]; then
     echo "$(date -Iseconds) $*" >>"$INSTALL_LOG"
-  else
+  elif [[ "$UI_MODE" != "community" ]]; then
     echo "$@"
   fi
 }
@@ -216,14 +229,27 @@ EOF
 
 if [[ "$UPDATE_MODE" == true ]]; then
   if [[ ! -d "$APP_DIR" ]]; then
-    echo "Geen installatie gevonden in $APP_DIR"
+    if [[ "$UI_MODE" == "community" ]] && declare -F msg_error >/dev/null 2>&1; then
+      msg_error "Geen installatie gevonden in $APP_DIR"
+    else
+      echo "Geen installatie gevonden in $APP_DIR"
+    fi
     exit 1
   fi
+  ui_info "Pulling latest GitHub release"
   clone_or_update_repo
+  ui_ok "Pulled latest GitHub release"
+  ui_info "Updating Python environment"
   setup_venv
   install_python_packages
+  ui_ok "Updated Python environment"
+  ui_info "Restarting Homelab Dashboard"
   setup_systemd
   systemctl restart "$SERVICE_NAME"
+  ui_ok "Restarted Homelab Dashboard"
+  if [[ "$UI_MODE" == "community" ]]; then
+    exit 0
+  fi
 else
   install_dependencies
   if [[ ! -f "$APP_DIR/homelab_dashboard.py" ]]; then
