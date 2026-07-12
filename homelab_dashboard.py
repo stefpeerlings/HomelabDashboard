@@ -64,6 +64,9 @@ PASSWORD_RESET_UNAVAILABLE_MSG = (
     "Wachtwoord reset via e-mail is nog niet beschikbaar. "
     "Neem contact op met een beheerder."
 )
+PASSWORD_RESET_SETUP_URL = (
+    "https://github.com/stefpeerlings/HomelabDashboard/blob/main/config/smtp.json.example"
+)
 
 
 def resolve_public_dashboard_url() -> str:
@@ -4061,6 +4064,14 @@ HTML = r"""<!DOCTYPE html>
       loginForgotEl.hidden = !authState.auth_enabled;
     }
 
+    function showPasswordResetUnavailable(el) {
+      el.style.color = "";
+      el.innerHTML =
+        "__PASSWORD_RESET_UNAVAILABLE__<br>" +
+        '<span class="help">Beheerders: <a href="__PASSWORD_RESET_SETUP_URL__" target="_blank" rel="noopener">smtp.json-voorbeeld op GitHub</a> ' +
+        "(server: <code>/root/.homelab-db/credentials/smtp.json</code>)</span>";
+    }
+
     function toggleAccountMenu(open) {
       const shouldOpen = open ?? accountMenuEl.hidden;
       accountMenuEl.hidden = !shouldOpen;
@@ -4115,7 +4126,7 @@ HTML = r"""<!DOCTYPE html>
       forgotErrorEl.textContent = "";
       forgotErrorEl.style.color = "";
       if (!authState.password_reset_enabled) {
-        forgotErrorEl.textContent = "__PASSWORD_RESET_UNAVAILABLE__";
+        showPasswordResetUnavailable(forgotErrorEl);
         return;
       }
       try {
@@ -4601,8 +4612,7 @@ HTML = r"""<!DOCTYPE html>
     loginSubmitEl.addEventListener("click", submitLogin);
     loginForgotEl.addEventListener("click", () => {
       if (!authState.password_reset_enabled) {
-        loginErrorEl.style.color = "";
-        loginErrorEl.textContent = "__PASSWORD_RESET_UNAVAILABLE__";
+        showPasswordResetUnavailable(loginErrorEl);
         return;
       }
       showLoginGate(true, "forgot");
@@ -5903,7 +5913,10 @@ HTML = r"""<!DOCTYPE html>
   </script>
 </body>
 </html>"""
-HTML = HTML.replace("__PASSWORD_RESET_UNAVAILABLE__", PASSWORD_RESET_UNAVAILABLE_MSG)
+HTML = (
+    HTML.replace("__PASSWORD_RESET_UNAVAILABLE__", PASSWORD_RESET_UNAVAILABLE_MSG)
+    .replace("__PASSWORD_RESET_SETUP_URL__", PASSWORD_RESET_SETUP_URL)
+)
 
 
 class Handler(BaseHTTPRequestHandler):

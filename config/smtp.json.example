@@ -7,5 +7,5 @@
   "from": "Homelab Dashboard <dashboard@voorbeeld.nl>",
   "use_tls": true,
   "dashboard_url": "http://<container-ip>:8765/",
-  "note": "Zet enabled op true voor wachtwoord-reset mails"
+  "note": "Zet enabled op true voor wachtwoord-reset mails. Zie README: Wachtwoord reset via e-mail"
 }

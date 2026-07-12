@@ -91,6 +91,25 @@ MariaDB wordt automatisch lokaal geïnstalleerd.
 
 Wijzig dit meteen na de eerste login via **Account → Wachtwoord**.
 
+## Wachtwoord reset via e-mail
+
+Wachtwoord vergeten werkt alleen als SMTP is ingesteld en `enabled` op `true` staat.
+
+| | |
+|---|---|
+| Voorbeeld op GitHub | [config/smtp.json.example](https://github.com/stefpeerlings/HomelabDashboard/blob/main/config/smtp.json.example) |
+| Configuratie op server | `/root/.homelab-db/credentials/smtp.json` |
+
+### Instellen
+
+1. Open of maak `smtp.json` in de dashboard-container (zie [voorbeeld op GitHub](https://github.com/stefpeerlings/HomelabDashboard/blob/main/config/smtp.json.example))
+2. Zet `"enabled": true` en vul `host`, `port`, `user`, `password` en `from` in
+3. Stel `dashboard_url` in op de URL waar gebruikers het dashboard openen (bijv. `http://10.0.10.22:8765/`)
+4. Herstart: `systemctl restart homelab-dashboard`
+5. Koppel per gebruiker een e-mailadres via **Account → Gebruikers**
+
+Zonder SMTP toont de loginknop *Wachtwoord vergeten?* een melding met een link naar het GitHub-voorbeeld.
+
 ## Projectstructuur
 
 ```
@@ -99,7 +118,7 @@ homelab-dashboard/
 ├── static/                 # xterm.js, logo
 ├── lxc-install.sh          # Installatie in LXC
 ├── ct/homelab-dashboard.sh # Proxmox install + update (zelfde link)
-├── config/                 # Voorbeeld-configs (geen secrets)
+├── config/                 # Voorbeeld-configs (smtp.json.example, geen secrets)
 └── scripts/
     ├── setup-local-mariadb.sh # Lokaal in dashboard-LXC (standaard)
     ├── setup-database.sh      # Externe MariaDB koppelen
