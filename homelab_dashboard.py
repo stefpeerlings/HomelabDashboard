@@ -529,10 +529,7 @@ def create_password_reset(email: str) -> bool:
             conn.close()
     cfg = load_smtp_config()
     if not cfg:
-        raise RuntimeError(
-            "SMTP is nog niet ingesteld. Een beheerder moet "
-            f"{SMTP_CONFIG_PATH} configureren (enabled: true)."
-        )
+        raise RuntimeError("E-mail is niet ingesteld")
     base = cfg["dashboard_url"].rstrip("/")
     reset_url = f"{base}/reset?token={token}"
     body = (
@@ -992,30 +989,8 @@ def password_reset_smtp_ready() -> bool:
         return False
 
 
-def any_user_has_reset_email() -> bool:
-    try:
-        init_db()
-        with _db_lock:
-            conn = get_db_connection()
-            try:
-                row = _fetchone(
-                    conn,
-                    "SELECT 1 AS ok FROM dashboard_users "
-                    "WHERE enabled=1 AND email IS NOT NULL AND TRIM(email)<>'' LIMIT 1",
-                )
-                return row is not None
-            finally:
-                conn.close()
-    except Exception:
-        return False
-
-
-def login_forgot_password_visible() -> bool:
-    return password_reset_smtp_ready() or any_user_has_reset_email()
-
-
 def auth_status_payload(handler) -> dict:
-    reset_enabled = login_forgot_password_visible()
+    reset_enabled = password_reset_smtp_ready()
     if not auth_enabled():
         return {
             "auth_enabled": False,
@@ -4079,9 +4054,7 @@ HTML = r"""<!DOCTYPE html>
     }
 
     function updateForgotButton() {
-      const show = authState.auth_enabled && authState.password_reset_enabled;
-      loginForgotEl.hidden = !show;
-      loginForgotEl.style.visibility = show ? "visible" : "hidden";
+      loginForgotEl.hidden = !authState.auth_enabled;
     }
 
     function toggleAccountMenu(open) {
@@ -4137,6 +4110,10 @@ HTML = r"""<!DOCTYPE html>
     async function submitForgotPassword() {
       forgotErrorEl.textContent = "";
       forgotErrorEl.style.color = "";
+      if (!authState.password_reset_enabled) {
+        forgotErrorEl.textContent = "E-mail is niet ingesteld";
+        return;
+      }
       try {
         const res = await fetch("/api/auth/forgot-password", {
           method: "POST",
@@ -4618,7 +4595,14 @@ HTML = r"""<!DOCTYPE html>
     usersCloseEl.addEventListener("click", closeUsersModal);
     usersModalEl.addEventListener("click", (e) => { if (e.target === usersModalEl) closeUsersModal(); });
     loginSubmitEl.addEventListener("click", submitLogin);
-    loginForgotEl.addEventListener("click", () => showLoginGate(true, "forgot"));
+    loginForgotEl.addEventListener("click", () => {
+      if (!authState.password_reset_enabled) {
+        loginErrorEl.style.color = "";
+        loginErrorEl.textContent = "E-mail is niet ingesteld";
+        return;
+      }
+      showLoginGate(true, "forgot");
+    });
     forgotBackEl.addEventListener("click", () => showLoginGate(true, "login"));
     forgotSubmitEl.addEventListener("click", submitForgotPassword);
     resetSubmitEl.addEventListener("click", submitResetPassword);
