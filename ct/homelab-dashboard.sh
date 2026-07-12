@@ -118,7 +118,7 @@ function install_dashboard_in_ct() {
   proxmox_target="${pve_ip:-$pve_name}"
 
   if [[ "$mode" == "--update" ]]; then
-    if ! pct exec "$CTID" -t -- bash -c "$(curl -fsSL "${RAW_BASE}/lxc-update.sh")" 2>&1 | tee -a "$install_log"; then
+    if ! pct exec "$CTID" -- bash -c "$(curl -fsSL "${RAW_BASE}/lxc-update.sh")" 2>&1 | tee -a "$install_log"; then
       msg_error "Update failed (log: ${install_log})"
       tail -20 "$install_log" || true
       exit 1

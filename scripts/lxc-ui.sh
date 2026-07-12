@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Homelab Dashboard — Proxmox Helper Script UI (Verbose / Silent)
+# HOMELAB_LXC_UI_REV=3
 
 if [[ -z "${_HOMELAB_LXC_UI_LOADED:-}" ]]; then
 _HOMELAB_LXC_UI_LOADED=1
@@ -82,39 +83,6 @@ enable_error_trap() {
   [[ "${_HOMELAB_ERR_TRAP:-}" == "1" ]] && return 0
   _HOMELAB_ERR_TRAP=1
   trap 'catch_errors $? $LINENO' ERR
-}
-
-choose_verbose_mode() {
-  local choice
-
-  if [[ -n "${PHS_SILENT:-}" && "${PHS_SILENT}" == "1" ]]; then
-    VERBOSE="no"
-    return 0
-  fi
-
-  if ! command -v whiptail >/dev/null 2>&1 || ! [[ -t 0 ]] || [[ "${TERM:-}" == "dumb" ]]; then
-    VERBOSE="no"
-    return 0
-  fi
-
-  choice="$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-    --title "Homelab Dashboard LXC Update/Setting" \
-    --menu "Support/Update functions for Homelab Dashboard LXC. Choose an option:" \
-    12 60 3 \
-    "1" "YES (Silent Mode)" \
-    "2" "YES (Verbose Mode)" \
-    "3" "NO (Cancel Update)" \
-    --nocancel --default-item "1" 3>&1 1>&2 2>&3)" || choice="3"
-
-  case "$choice" in
-  1) VERBOSE="no" ;;
-  2) VERBOSE="yes" ;;
-  *)
-    clear
-    msg_error "Update geannuleerd door gebruiker."
-    exit 0
-    ;;
-  esac
 }
 
 show_header() {

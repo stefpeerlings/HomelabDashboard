@@ -17,8 +17,10 @@ APP_DIR="${HOMELAB_DIR:-/opt/homelab-dashboard}"
 
 if [[ "${HOMELAB_UI:-}" == "community" ]]; then
   REPO_RAW_UI="${HOMELAB_REPO_RAW:-https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main}"
+  _ui_rev="${HOMELAB_UI_REV:-3}"
   _ui_script="${HOMELAB_UI_SCRIPT:-}"
-  if [[ -z "$_ui_script" && -f "${APP_DIR}/scripts/lxc-ui.sh" ]]; then
+  if [[ -z "$_ui_script" && -f "${APP_DIR}/scripts/lxc-ui.sh" ]] \
+    && grep -q "HOMELAB_LXC_UI_REV=${_ui_rev}" "${APP_DIR}/scripts/lxc-ui.sh" 2>/dev/null; then
     _ui_script="${APP_DIR}/scripts/lxc-ui.sh"
   fi
   if [[ -n "$_ui_script" && -f "$_ui_script" ]]; then
@@ -26,7 +28,8 @@ if [[ "${HOMELAB_UI:-}" == "community" ]]; then
     source "$_ui_script"
   else
     # shellcheck disable=SC1091
-    source <(curl -fsSL "${REPO_RAW_UI}/scripts/lxc-ui.sh") 2>/dev/null || true
+    source <(curl -fsSL "${REPO_RAW_UI}/scripts/lxc-ui.sh?rev=${_ui_rev}") 2>/dev/null \
+      || source <(curl -fsSL "${REPO_RAW_UI}/scripts/lxc-ui.sh") 2>/dev/null || true
   fi
   VERBOSE="${VERBOSE:-no}"
   if [[ -z "${LOG_FILE:-}" && -z "${INSTALL_LOG:-}" ]]; then
