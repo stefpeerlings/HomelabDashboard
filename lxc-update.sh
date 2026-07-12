@@ -18,6 +18,8 @@ var_ram="${var_ram:-2048}"
 var_disk="${var_disk:-4}"
 
 function header_info {
+  [[ "${_HEADER_SHOWN:-0}" == "1" ]] && return 0
+  _HEADER_SHOWN=1
   clear
   cat <<"EOF"
  _   _                      _       _
@@ -58,7 +60,6 @@ function update_script() {
   export INSTALL_LOG="$install_log"
 
   install_script="$(mktemp /tmp/homelab-lxc-update.XXXXXX.sh)"
-  trap 'rm -f "$install_script"' RETURN
 
   msg_info "Updating ${APP}"
   $STD curl -fsSL "${REPO_RAW}/lxc-install.sh" -o "$install_script"
@@ -66,9 +67,11 @@ function update_script() {
 
   if ! HOMELAB_UI=community VERBOSE="${VERBOSE:-no}" INSTALL_LOG="$install_log" \
     bash "$install_script" --update; then
+    rm -f "$install_script"
     msg_error "Update failed (log: ${install_log})"
     exit 1
   fi
+  rm -f "$install_script"
 
   msg_ok "Updated successfully!"
   local ip="${LOCAL_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
