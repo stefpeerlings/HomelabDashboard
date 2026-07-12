@@ -11,7 +11,7 @@
 # Externe MariaDB i.p.v. lokaal:
 #   HOMELAB_DB_MODE=remote bash lxc-install.sh
 
-set -euo pipefail
+set -Eeuo pipefail
 
 APP_DIR="${HOMELAB_DIR:-/opt/homelab-dashboard}"
 
@@ -65,7 +65,7 @@ ui_info() {
 
 ui_ok() {
   if [[ "$UI_MODE" == "community" ]] && declare -F msg_ok >/dev/null 2>&1; then
-    msg_ok
+    msg_ok "$*"
   fi
 }
 
@@ -108,9 +108,11 @@ clone_or_update_repo() {
       local_rev="$(git -C "$APP_DIR" rev-parse HEAD)"
       remote_rev="$(git -C "$APP_DIR" rev-parse "origin/${REPO_BRANCH}")"
       if [[ "$local_rev" == "$remote_rev" ]]; then
+        HOMELAB_REPO_STATUS="Applicatie is up-to-date"
         return 0
       fi
       run_quiet git -C "$APP_DIR" pull origin "$REPO_BRANCH"
+      HOMELAB_REPO_STATUS="Applicatiebestanden gesynchroniseerd"
       return 0
     fi
     run_quiet git -C "$APP_DIR" pull origin "$REPO_BRANCH"
@@ -272,17 +274,17 @@ if [[ "$UPDATE_MODE" == true ]]; then
     fi
     exit 1
   fi
-  ui_info "GitHub-release ophalen..."
+  ui_info "Applicatiebestanden synchroniseren"
   clone_or_update_repo
-  ui_ok
-  ui_info "Python-omgeving bijwerken..."
+  ui_ok "${HOMELAB_REPO_STATUS:-Applicatiebestanden gesynchroniseerd}"
+  ui_info "Python-omgeving bijwerken"
   setup_venv
   install_python_packages
-  ui_ok
-  ui_info "Homelab Dashboard herstarten..."
+  ui_ok "Python-omgeving bijgewerkt"
+  ui_info "Applicatie services herstarten"
   setup_systemd
   run_quiet systemctl restart "$SERVICE_NAME"
-  ui_ok
+  ui_ok "Services succesvol herstart"
   if [[ "$UI_MODE" == "community" ]]; then
     exit 0
   fi

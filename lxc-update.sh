@@ -8,7 +8,7 @@
 # Vanaf Proxmox host:
 #   pct exec <CTID> -t -- bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-update.sh)"
 
-set -euo pipefail
+set -Eeuo pipefail
 
 REPO_RAW="${HOMELAB_REPO_RAW:-https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main}"
 APP_DIR="${HOMELAB_DIR:-/opt/homelab-dashboard}"
@@ -45,21 +45,21 @@ fi
 
 install_script="$(mktemp /tmp/homelab-lxc-update.XXXXXX.sh)"
 
-msg_info "Updater-script ophalen..."
+msg_info "Updater-script ophalen"
 silent curl -fsSL "${REPO_RAW}/lxc-install.sh" -o "$install_script"
 chmod +x "$install_script"
-msg_ok
+msg_ok "Updater-script opgehaald"
 
 HOMELAB_UI=community VERBOSE="$VERBOSE" LOG_FILE="$LOG_FILE" INSTALL_LOG="$LOG_FILE" \
   bash "$install_script" --update
 rm -f "$install_script"
 
-msg_info "Overbodige pakketten opruimen..."
+msg_info "Overbodige pakketten opruimen"
 export DEBIAN_FRONTEND=noninteractive
 silent apt-get autoremove -y
 silent apt-get autoclean -y
-msg_ok
+msg_ok "Systeem opgeruimd"
 
 ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-echo -e "\n${GN}✔ Update succesvol afgerond!${BGN_OFF}"
+echo -e "\n${GN}✔ Updateproces succesvol afgerond!${BGN_OFF}"
 echo -e "  ${CY}Dashboard:${BGN_OFF}  ${BGN} http://${ip:-<container-ip>}:${HTTP_PORT} ${BGN_OFF}\n"
