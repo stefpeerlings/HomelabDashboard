@@ -4286,15 +4286,14 @@ HTML = r"""<!DOCTYPE html>
           `${user.email ? " · " + user.email : ""}` +
           `</small>`;
 
-        const emailRow = document.createElement("div");
-        emailRow.className = "field-row";
-        emailRow.style.marginTop = ".35rem";
-        emailRow.style.gridTemplateColumns = "1fr auto";
+        const emailWrap = document.createElement("div");
+        emailWrap.style.marginTop = ".35rem";
 
         const emailInput = document.createElement("input");
         emailInput.type = "email";
         emailInput.className = "btn";
         emailInput.style.width = "100%";
+        emailInput.style.boxSizing = "border-box";
         emailInput.placeholder = "e-mail voor reset";
         emailInput.value = user.email || "";
 
@@ -4302,7 +4301,8 @@ HTML = r"""<!DOCTYPE html>
         emailSaveBtn.type = "button";
         emailSaveBtn.className = "btn btn-primary";
         emailSaveBtn.textContent = "Opslaan";
-        emailSaveBtn.style.minWidth = "5rem";
+        emailSaveBtn.style.marginTop = ".35rem";
+        emailSaveBtn.style.width = "100%";
 
         async function saveUserEmail() {
           showUsersError("");
@@ -4335,9 +4335,9 @@ HTML = r"""<!DOCTYPE html>
           }
         });
 
-        emailRow.appendChild(emailInput);
-        emailRow.appendChild(emailSaveBtn);
-        info.appendChild(emailRow);
+        emailWrap.appendChild(emailInput);
+        emailWrap.appendChild(emailSaveBtn);
+        info.appendChild(emailWrap);
 
         const actions = document.createElement("div");
         actions.className = "host-item-actions";
