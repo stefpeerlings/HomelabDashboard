@@ -12,7 +12,6 @@ set -Eeuo pipefail
 
 REPO_RAW="${HOMELAB_REPO_RAW:-https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main}"
 APP_DIR="${HOMELAB_DIR:-/opt/homelab-dashboard}"
-HTTP_PORT="${HOMELAB_HTTP_PORT:-8765}"
 
 load_ui() {
   local ui_script="${HOMELAB_UI_SCRIPT:-}"
@@ -60,6 +59,4 @@ silent apt-get autoremove -y
 silent apt-get autoclean -y
 msg_ok "Systeem opgeruimd"
 
-ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
-echo -e "\n${GN}✔ Updateproces succesvol afgerond!${BGN_OFF}"
-echo -e "  ${CY}Dashboard:${BGN_OFF}  ${BGN} http://${ip:-<container-ip>}:${HTTP_PORT} ${BGN_OFF}\n"
+echo -e "\n${GN}✔ Updateproces succesvol afgerond!${BGN_OFF}\n"
