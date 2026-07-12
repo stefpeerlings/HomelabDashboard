@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Homelab Dashboard — Proxmox Helper Script UI (Verbose / Silent)
-# HOMELAB_LXC_UI_REV=3
+# HOMELAB_LXC_UI_REV=4
 
 if [[ -z "${_HOMELAB_LXC_UI_LOADED:-}" ]]; then
 _HOMELAB_LXC_UI_LOADED=1
@@ -83,6 +83,64 @@ enable_error_trap() {
   [[ "${_HOMELAB_ERR_TRAP:-}" == "1" ]] && return 0
   _HOMELAB_ERR_TRAP=1
   trap 'catch_errors $? $LINENO' ERR
+}
+
+_whiptail_tty() {
+  if [[ -t 0 ]]; then
+    echo "0"
+    return 0
+  fi
+  if [[ -r /dev/tty && -w /dev/tty ]]; then
+    echo "/dev/tty"
+    return 0
+  fi
+  return 1
+}
+
+choose_verbose_mode() {
+  local choice tty_target whiptail_args=()
+
+  if [[ -n "${PHS_SILENT:-}" && "${PHS_SILENT}" == "1" ]]; then
+    VERBOSE="no"
+    return 0
+  fi
+
+  if ! command -v whiptail >/dev/null 2>&1 || [[ "${TERM:-}" == "dumb" ]]; then
+    VERBOSE="no"
+    return 0
+  fi
+
+  if ! tty_target="$(_whiptail_tty)"; then
+    VERBOSE="no"
+    return 0
+  fi
+
+  whiptail_args=(
+    --backtitle "Proxmox VE Helper Scripts"
+    --title "Homelab Dashboard LXC Update/Setting"
+    --menu "Support/Update functions for Homelab Dashboard LXC. Choose an option:"
+    12 60 3
+    "1" "YES (Silent Mode)"
+    "2" "YES (Verbose Mode)"
+    "3" "NO (Cancel Update)"
+    --nocancel --default-item "1"
+  )
+
+  if [[ "$tty_target" == "0" ]]; then
+    choice="$(whiptail "${whiptail_args[@]}" 3>&1 1>&2 2>&3)" || choice="3"
+  else
+    choice="$(whiptail "${whiptail_args[@]}" </dev/tty >/dev/tty 2>&1)" || choice="3"
+  fi
+
+  case "$choice" in
+  1) VERBOSE="no" ;;
+  2) VERBOSE="yes" ;;
+  *)
+    clear
+    echo "Update geannuleerd."
+    exit 0
+    ;;
+  esac
 }
 
 show_header() {

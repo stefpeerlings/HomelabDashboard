@@ -17,7 +17,7 @@ APP_DIR="${HOMELAB_DIR:-/opt/homelab-dashboard}"
 
 if [[ "${HOMELAB_UI:-}" == "community" ]]; then
   REPO_RAW_UI="${HOMELAB_REPO_RAW:-https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main}"
-  _ui_rev="${HOMELAB_UI_REV:-3}"
+  _ui_rev="${HOMELAB_UI_REV:-4}"
   _ui_script="${HOMELAB_UI_SCRIPT:-}"
   if [[ -z "$_ui_script" && -f "${APP_DIR}/scripts/lxc-ui.sh" ]] \
     && grep -q "HOMELAB_LXC_UI_REV=${_ui_rev}" "${APP_DIR}/scripts/lxc-ui.sh" 2>/dev/null; then
