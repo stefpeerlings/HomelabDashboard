@@ -56,7 +56,25 @@ DB_PATH = Path(os.environ.get("HOMELAB_DB_PATH", "/etc/homelab-dashboard/dashboa
 DB_CONFIG_PATH = CREDENTIALS_DIR / "service.json"
 DASHBOARD_AUTH_PATH = CREDENTIALS_DIR / "dashboard-auth.json"
 DASHBOARD_LOGIN_PATH = CREDENTIALS_DIR / "dashboard-login.json"
-SMTP_CONFIG_PATH = CREDENTIALS_DIR / "smtp.json"
+
+
+def _resolve_mail_dir() -> Path:
+    env_dir = os.environ.get("HOMELAB_MAIL_DIR", "").strip()
+    if env_dir:
+        return Path(env_dir)
+    return APP_ROOT / "mail"
+
+
+def _resolve_smtp_config_path() -> Path:
+    env_path = os.environ.get("HOMELAB_SMTP_CONFIG_PATH", "").strip()
+    if env_path:
+        return Path(env_path)
+    return _resolve_mail_dir() / "smtp.json"
+
+
+MAIL_DIR = _resolve_mail_dir()
+LEGACY_SMTP_CONFIG_PATH = CREDENTIALS_DIR / "smtp.json"
+SMTP_CONFIG_PATH = _resolve_smtp_config_path()
 STATIC_DIR = _resolve_static_dir(APP_ROOT)
 PUBLIC_DASHBOARD_URL = os.environ.get("HOMELAB_PUBLIC_URL", "").strip()
 SESSION_COOKIE = "homelab_session"
@@ -65,7 +83,7 @@ PASSWORD_RESET_UNAVAILABLE_MSG = (
     "Neem contact op met een beheerder."
 )
 PASSWORD_RESET_SETUP_URL = (
-    "https://github.com/stefpeerlings/HomelabDashboard/blob/main/config/smtp.json.example"
+    "https://github.com/stefpeerlings/HomelabDashboard/blob/main/mail/smtp.json.example"
 )
 
 
@@ -392,7 +410,16 @@ def normalize_email(value: str | None) -> str | None:
     return email
 
 
+def _migrate_legacy_smtp_config() -> None:
+    if SMTP_CONFIG_PATH.exists() or not LEGACY_SMTP_CONFIG_PATH.exists():
+        return
+    SMTP_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LEGACY_SMTP_CONFIG_PATH.replace(SMTP_CONFIG_PATH)
+    os.chmod(SMTP_CONFIG_PATH, 0o600)
+
+
 def ensure_smtp_template() -> None:
+    _migrate_legacy_smtp_config()
     if SMTP_CONFIG_PATH.exists():
         return
     _save_secret_json(
@@ -4069,7 +4096,7 @@ HTML = r"""<!DOCTYPE html>
       el.innerHTML =
         "__PASSWORD_RESET_UNAVAILABLE__<br>" +
         '<span class="help">Beheerders: <a href="__PASSWORD_RESET_SETUP_URL__" target="_blank" rel="noopener">smtp.json-voorbeeld op GitHub</a> ' +
-        "(server: <code>/root/.homelab-db/credentials/smtp.json</code>)</span>";
+        "(server: <code>__SMTP_CONFIG_PATH__</code>)</span>";
     }
 
     function toggleAccountMenu(open) {
@@ -5916,6 +5943,7 @@ HTML = r"""<!DOCTYPE html>
 HTML = (
     HTML.replace("__PASSWORD_RESET_UNAVAILABLE__", PASSWORD_RESET_UNAVAILABLE_MSG)
     .replace("__PASSWORD_RESET_SETUP_URL__", PASSWORD_RESET_SETUP_URL)
+    .replace("__SMTP_CONFIG_PATH__", str(SMTP_CONFIG_PATH))
 )
 
 

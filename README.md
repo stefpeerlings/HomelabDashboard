@@ -97,12 +97,12 @@ Wachtwoord vergeten werkt alleen als SMTP is ingesteld en `enabled` op `true` st
 
 | | |
 |---|---|
-| Voorbeeld op GitHub | [config/smtp.json.example](https://github.com/stefpeerlings/HomelabDashboard/blob/main/config/smtp.json.example) |
-| Configuratie op server | `/root/.homelab-db/credentials/smtp.json` |
+| Voorbeeld op GitHub | [mail/smtp.json.example](https://github.com/stefpeerlings/HomelabDashboard/blob/main/mail/smtp.json.example) |
+| Configuratie op server | `/opt/homelab-dashboard/mail/smtp.json` |
 
 ### Instellen
 
-1. Open of maak `smtp.json` in de dashboard-container (zie [voorbeeld op GitHub](https://github.com/stefpeerlings/HomelabDashboard/blob/main/config/smtp.json.example))
+1. Open of maak `smtp.json` in de dashboard-container (zie [voorbeeld op GitHub](https://github.com/stefpeerlings/HomelabDashboard/blob/main/mail/smtp.json.example))
 2. Zet `"enabled": true` en vul `host`, `port`, `user`, `password` en `from` in
 3. Stel `dashboard_url` in op de URL waar gebruikers het dashboard openen (bijv. `http://10.0.10.22:8765/`)
 4. Herstart: `systemctl restart homelab-dashboard`
@@ -118,7 +118,8 @@ homelab-dashboard/
 ├── static/                 # xterm.js, logo
 ├── lxc-install.sh          # Installatie in LXC
 ├── ct/homelab-dashboard.sh # Proxmox install + update (zelfde link)
-├── config/                 # Voorbeeld-configs (smtp.json.example, geen secrets)
+├── mail/                   # SMTP-voorbeeld (smtp.json.example)
+├── config/                 # Voorbeeld-configs (service.json, geen secrets)
 └── scripts/
     ├── setup-local-mariadb.sh # Lokaal in dashboard-LXC (standaard)
     ├── setup-database.sh      # Externe MariaDB koppelen
@@ -133,7 +134,8 @@ homelab-dashboard/
 | Variabele | Default | Beschrijving |
 |-----------|---------|--------------|
 | `HOMELAB_APP_ROOT` | `/opt/homelab-dashboard` | Applicatiemap |
-| `HOMELAB_CREDENTIALS_DIR` | `/root/.homelab-db/credentials` | Secrets |
+| `HOMELAB_CREDENTIALS_DIR` | `/root/.homelab-db/credentials` | DB- en login-secrets |
+| `HOMELAB_MAIL_DIR` | `/opt/homelab-dashboard/mail` | SMTP-config (`smtp.json`) |
 | `HOMELAB_PUBLIC_URL` | auto-detect | Vaste URL (zet `HOMELAB_AUTO_PUBLIC_URL=0`) |
 | `HOMELAB_AUTO_PUBLIC_URL` | `1` | IP automatisch via `hostname -I` |
 | `HOMELAB_STATIC_DIR` | `$APP_ROOT/static` | Statische bestanden |

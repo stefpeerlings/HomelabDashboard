@@ -44,6 +44,7 @@ REPO_URL="${HOMELAB_REPO:-https://github.com/stefpeerlings/HomelabDashboard.git}
 REPO_BRANCH="${HOMELAB_BRANCH:-main}"
 SERVICE_NAME="homelab-dashboard"
 CREDENTIALS_DIR="${HOMELAB_CREDENTIALS_DIR:-/root/.homelab-db/credentials}"
+MAIL_DIR="${HOMELAB_MAIL_DIR:-$APP_DIR/mail}"
 HTTP_PORT="${HOMELAB_HTTP_PORT:-8765}"
 WS_PORT="${HOMELAB_WS_PORT:-8766}"
 DB_MODE="${HOMELAB_DB_MODE:-local}"
@@ -164,8 +165,8 @@ install_python_packages() {
 
 prepare_dirs() {
   step "[4/7] Mappen en credentials voorbereiden..."
-  mkdir -p "$CREDENTIALS_DIR" /etc/homelab-dashboard
-  chmod 700 "$CREDENTIALS_DIR"
+  mkdir -p "$CREDENTIALS_DIR" "$MAIL_DIR" /etc/homelab-dashboard
+  chmod 700 "$CREDENTIALS_DIR" "$MAIL_DIR"
 
   if [[ "$DB_MODE" == "remote" && ! -f "$CREDENTIALS_DIR/service.json" ]]; then
     cp "$APP_DIR/config/service.json.example" "$CREDENTIALS_DIR/service.json"
@@ -173,9 +174,12 @@ prepare_dirs() {
     step "Externe MariaDB: vul service.json in of gebruik setup-database.sh"
   fi
 
-  if [[ ! -f "$CREDENTIALS_DIR/smtp.json" ]]; then
-    cp "$APP_DIR/config/smtp.json.example" "$CREDENTIALS_DIR/smtp.json"
-    chmod 600 "$CREDENTIALS_DIR/smtp.json"
+  if [[ ! -f "$MAIL_DIR/smtp.json" && -f "$CREDENTIALS_DIR/smtp.json" ]]; then
+    mv "$CREDENTIALS_DIR/smtp.json" "$MAIL_DIR/smtp.json"
+    chmod 600 "$MAIL_DIR/smtp.json"
+  elif [[ ! -f "$MAIL_DIR/smtp.json" ]]; then
+    cp "$APP_DIR/mail/smtp.json.example" "$MAIL_DIR/smtp.json"
+    chmod 600 "$MAIL_DIR/smtp.json"
   fi
 }
 
@@ -263,6 +267,7 @@ User=root
 WorkingDirectory=$APP_DIR
 Environment=HOMELAB_APP_ROOT=$APP_DIR
 Environment=HOMELAB_CREDENTIALS_DIR=$CREDENTIALS_DIR
+Environment=HOMELAB_MAIL_DIR=$MAIL_DIR
 Environment=HOMELAB_HTTP_PORT=$HTTP_PORT
 $public_env
 ExecStart=$APP_DIR/.venv/bin/python $APP_DIR/homelab_dashboard.py
@@ -329,6 +334,7 @@ echo "Dashboard: http://${IP:-<container-ip>}:${HTTP_PORT}/"
 echo "WebSocket SSH: poort ${WS_PORT}"
 echo "MariaDB: lokaal op 127.0.0.1 (automatisch geconfigureerd)"
 echo "Credentials: $CREDENTIALS_DIR"
+echo "SMTP mail:   $MAIL_DIR/smtp.json"
 echo ""
 echo "Standaard login (eerste start): admin / homelab123"
 echo ""

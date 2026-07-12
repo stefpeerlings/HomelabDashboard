@@ -9,4 +9,5 @@ data/
 credentials/
 config/service.json
 config/smtp.json
+mail/smtp.json
 config/dashboard-*.json
