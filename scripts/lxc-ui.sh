@@ -30,17 +30,17 @@ e_space() {
 }
 
 msg_info() {
-  local msg="$1"
+  local msg="${1-}"
   echo -ne "  ${BL}[Info]${BGN_OFF}  ${msg}$(e_space "$msg")"
 }
 
 msg_ok() {
-  local msg="$1"
+  local msg="${1-}"
   echo -e "${CL}  ${GN}[OK]${BGN_OFF}  ${msg}"
 }
 
 msg_error() {
-  local msg="$1"
+  local msg="${1-}"
   echo -e "${CL}  ${RD}[ERROR]${BGN_OFF}  ${msg}" >&2
 }
 
