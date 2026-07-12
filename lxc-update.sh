@@ -16,8 +16,21 @@ HTTP_PORT="${HOMELAB_HTTP_PORT:-8765}"
 VERBOSE="${VERBOSE:-no}"
 INSTALL_LOG="${INSTALL_LOG:-/root/.homelab-update-$(date +%Y%m%d_%H%M%S).log}"
 
-# shellcheck disable=SC1091
-source <(curl -fsSL "${REPO_RAW}/scripts/lxc-ui.sh")
+load_ui() {
+  local ui_script="${HOMELAB_UI_SCRIPT:-}"
+  if [[ -z "$ui_script" && -f "${APP_DIR}/scripts/lxc-ui.sh" ]]; then
+    ui_script="${APP_DIR}/scripts/lxc-ui.sh"
+  fi
+  if [[ -n "$ui_script" && -f "$ui_script" ]]; then
+    # shellcheck disable=SC1090
+    source "$ui_script"
+    return 0
+  fi
+  # shellcheck disable=SC1091
+  source <(curl -fsSL "${REPO_RAW}/scripts/lxc-ui.sh")
+}
+
+load_ui
 
 run_silent() {
   if [[ "$VERBOSE" == "yes" ]]; then

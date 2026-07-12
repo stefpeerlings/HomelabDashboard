@@ -13,14 +13,23 @@
 
 set -euo pipefail
 
+APP_DIR="${HOMELAB_DIR:-/opt/homelab-dashboard}"
+
 if [[ "${HOMELAB_UI:-}" == "community" ]]; then
   REPO_RAW_UI="${HOMELAB_REPO_RAW:-https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main}"
-  # shellcheck disable=SC1091
-  source <(curl -fsSL "${REPO_RAW_UI}/scripts/lxc-ui.sh") 2>/dev/null || true
+  _ui_script="${HOMELAB_UI_SCRIPT:-}"
+  if [[ -z "$_ui_script" && -f "${APP_DIR}/scripts/lxc-ui.sh" ]]; then
+    _ui_script="${APP_DIR}/scripts/lxc-ui.sh"
+  fi
+  if [[ -n "$_ui_script" && -f "$_ui_script" ]]; then
+    # shellcheck disable=SC1090
+    source "$_ui_script"
+  else
+    # shellcheck disable=SC1091
+    source <(curl -fsSL "${REPO_RAW_UI}/scripts/lxc-ui.sh") 2>/dev/null || true
+  fi
   export INSTALL_LOG="${INSTALL_LOG:-/root/.homelab-update.log}"
 fi
-
-APP_DIR="${HOMELAB_DIR:-/opt/homelab-dashboard}"
 REPO_URL="${HOMELAB_REPO:-https://github.com/stefpeerlings/HomelabDashboard.git}"
 REPO_BRANCH="${HOMELAB_BRANCH:-main}"
 SERVICE_NAME="homelab-dashboard"
