@@ -91,20 +91,6 @@ MariaDB wordt automatisch lokaal geïnstalleerd.
 
 Wijzig dit meteen na de eerste login via **Account → Wachtwoord**.
 
-## Update
-
-In de container (als root):
-
-```bash
-bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/ct/homelab-dashboard.sh)"
-```
-
-Vanaf je Proxmox host:
-
-```bash
-pct exec <CTID> -- bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/ct/homelab-dashboard.sh)"
-```
-
 ## Projectstructuur
 
 ```
@@ -112,8 +98,7 @@ homelab-dashboard/
 ├── homelab_dashboard.py    # Hoofdapplicatie
 ├── static/                 # xterm.js, logo
 ├── lxc-install.sh          # Installatie in LXC
-├── lxc-update.sh           # Doorverwijzing naar ct/homelab-dashboard.sh
-├── ct/homelab-dashboard.sh # Proxmox community-scripts installer
+├── ct/homelab-dashboard.sh # Proxmox install + update (zelfde link)
 ├── config/                 # Voorbeeld-configs (geen secrets)
 └── scripts/
     ├── setup-local-mariadb.sh # Lokaal in dashboard-LXC (standaard)
