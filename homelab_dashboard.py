@@ -4286,29 +4286,58 @@ HTML = r"""<!DOCTYPE html>
           `${user.email ? " · " + user.email : ""}` +
           `</small>`;
 
+        const emailRow = document.createElement("div");
+        emailRow.className = "field-row";
+        emailRow.style.marginTop = ".35rem";
+        emailRow.style.gridTemplateColumns = "1fr auto";
+
         const emailInput = document.createElement("input");
         emailInput.type = "email";
         emailInput.className = "btn";
         emailInput.style.width = "100%";
-        emailInput.style.marginTop = ".35rem";
         emailInput.placeholder = "e-mail voor reset";
         emailInput.value = user.email || "";
-        emailInput.addEventListener("change", async () => {
+
+        const emailSaveBtn = document.createElement("button");
+        emailSaveBtn.type = "button";
+        emailSaveBtn.className = "btn btn-primary";
+        emailSaveBtn.textContent = "Opslaan";
+        emailSaveBtn.style.minWidth = "5rem";
+
+        async function saveUserEmail() {
           showUsersError("");
+          emailSaveBtn.disabled = true;
+          const oldLabel = emailSaveBtn.textContent;
+          emailSaveBtn.textContent = "...";
           try {
-            const body = { username: user.username, email: emailInput.value.trim() };
             const res = await apiFetch("/api/users/update", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(body),
+              body: JSON.stringify({ username: user.username, email: emailInput.value.trim() }),
             });
             const data = await res.json();
-            if (!data.ok) throw new Error(data.error || "Opslaan mislukt");
+            if (!res.ok || !data.ok) throw new Error(data.error || "Opslaan mislukt");
+            showUsersError(`E-mail voor '${user.username}' opgeslagen.`, "var(--ok)");
+            await openUsersModal();
           } catch (err) {
             showUsersError(err.message);
+          } finally {
+            emailSaveBtn.disabled = false;
+            emailSaveBtn.textContent = oldLabel;
+          }
+        }
+
+        emailSaveBtn.addEventListener("click", saveUserEmail);
+        emailInput.addEventListener("keydown", (e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            saveUserEmail();
           }
         });
-        info.appendChild(emailInput);
+
+        emailRow.appendChild(emailInput);
+        emailRow.appendChild(emailSaveBtn);
+        info.appendChild(emailRow);
 
         const actions = document.createElement("div");
         actions.className = "host-item-actions";
