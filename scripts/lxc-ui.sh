@@ -85,6 +85,8 @@ enable_error_trap() {
 }
 
 choose_verbose_mode() {
+  local choice
+
   if [[ -n "${PHS_SILENT:-}" && "${PHS_SILENT}" == "1" ]]; then
     VERBOSE="no"
     return 0
@@ -95,13 +97,24 @@ choose_verbose_mode() {
     return 0
   fi
 
-  if whiptail --backtitle "Homelab Dashboard" \
-    --title "UPDATE MODUS" \
-    --yesno "Wilt u de technische output live bekijken (Verbose)?\n\nKies 'Nee' voor de strakke Proxmox-stijl (Silent)." 10 58; then
-    VERBOSE="yes"
-  else
-    VERBOSE="no"
-  fi
+  choice="$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+    --title "Homelab Dashboard LXC Update/Setting" \
+    --menu "Support/Update functions for Homelab Dashboard LXC. Choose an option:" \
+    12 60 3 \
+    "1" "YES (Silent Mode)" \
+    "2" "YES (Verbose Mode)" \
+    "3" "NO (Cancel Update)" \
+    --nocancel --default-item "1" 3>&1 1>&2 2>&3)" || choice="3"
+
+  case "$choice" in
+  1) VERBOSE="no" ;;
+  2) VERBOSE="yes" ;;
+  *)
+    clear
+    msg_error "Update geannuleerd door gebruiker."
+    exit 0
+    ;;
+  esac
 }
 
 show_header() {
