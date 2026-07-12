@@ -5,8 +5,8 @@
 # In een LXC container (Debian 12/13):
 #   bash <(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-install.sh)
 #
-# Update:
-#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-update.sh)"
+# Update (in container, zelfde link als install op Proxmox host):
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/ct/homelab-dashboard.sh)"
 #
 # Externe MariaDB i.p.v. lokaal:
 #   HOMELAB_DB_MODE=remote bash lxc-install.sh
@@ -335,5 +335,5 @@ fi
 echo "Handige commando's:"
 echo "  systemctl status $SERVICE_NAME"
 echo "  journalctl -u $SERVICE_NAME -f"
-echo "  bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-update.sh)\""
+echo "  bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/ct/homelab-dashboard.sh)\""
 echo ""

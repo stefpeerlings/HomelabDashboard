@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 #
-# Homelab Dashboard - Proxmox VE LXC Installer
+# Homelab Dashboard - Proxmox VE LXC (install + update)
 #
-# Op je Proxmox host:
+# Op Proxmox host (install):
 #   bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/ct/homelab-dashboard.sh)"
 #
-# Of na clone:
-#   git clone https://github.com/stefpeerlings/HomelabDashboard.git
-#   cd HomelabDashboard && bash ct/homelab-dashboard.sh
+# In de container (update — zelfde link als Vaultwarden):
+#   bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/ct/homelab-dashboard.sh)"
 
 source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func)
 
@@ -34,7 +33,8 @@ fetch_repo_file() {
   return 1
 }
 
-APP="HomelabDashboard"
+APP="Homelab Dashboard"
+NSAPP="homelab-dashboard"
 var_hostname="${var_hostname:-homelab-dashboard}"
 var_cpu="${var_cpu:-2}"
 var_ram="${var_ram:-2048}"
@@ -109,7 +109,6 @@ function configure_dashboard_proxmox_from_host() {
 }
 
 function install_dashboard_in_ct() {
-  local mode="${1:-}"
   local install_script="/tmp/homelab-dashboard-lxc-install.sh"
   local install_log="/var/log/homelab-dashboard-install-${CTID}.log"
   local pve_name pve_ip proxmox_target
@@ -117,23 +116,12 @@ function install_dashboard_in_ct() {
   pve_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
   proxmox_target="${pve_ip:-$pve_name}"
 
-  if [[ "$mode" == "--update" ]]; then
-    if ! pct exec "$CTID" -- bash -c "$(curl -fsSL "${RAW_BASE}/lxc-update.sh")" 2>&1 | tee -a "$install_log"; then
-      msg_error "Update failed (log: ${install_log})"
-      tail -20 "$install_log" || true
-      exit 1
-    fi
-    rm -f "$install_script"
-    pct set "$CTID" -tags homelab-dashboard
-    return 0
-  fi
-
   curl -fsSL "${RAW_BASE}/lxc-install.sh" -o "$install_script"
-  pct push "$CTID" "$install_script" /tmp/homelab-update.sh
-  pct exec "$CTID" -- chmod +x /tmp/homelab-update.sh
+  pct push "$CTID" "$install_script" /tmp/homelab-lxc-install.sh
+  pct exec "$CTID" -- chmod +x /tmp/homelab-lxc-install.sh
 
   if ! HOMELAB_QUIET=1 HOMELAB_PROXMOX_HOST="$proxmox_target" HOMELAB_NODE_NAME="$pve_name" \
-    pct exec "$CTID" -- bash /tmp/homelab-update.sh >>"$install_log" 2>&1; then
+    pct exec "$CTID" -- bash /tmp/homelab-lxc-install.sh >>"$install_log" 2>&1; then
     msg_error "Installation failed (log: ${install_log})"
     tail -20 "$install_log" || true
     exit 1
@@ -216,12 +204,28 @@ function update_script() {
   check_container_storage
   check_container_resources
 
-  if ! pct exec "$CTID" -- test -d /opt/homelab-dashboard; then
-    msg_error "Geen Homelab Dashboard installatie gevonden in deze container!"
+  if [[ ! -f /opt/homelab-dashboard/homelab_dashboard.py ]]; then
+    msg_error "No ${APP} Installation Found!"
     exit
   fi
 
-  install_dashboard_in_ct --update
+  local install_script install_log
+  install_script="$(mktemp /tmp/homelab-lxc-update.XXXXXX.sh)"
+  install_log="${INSTALL_LOG:-/root/.homelab-update.log}"
+
+  $STD curl -fsSL "${RAW_BASE}/lxc-install.sh" -o "$install_script"
+  chmod +x "$install_script"
+
+  if ! HOMELAB_UI=community \
+    VERBOSE="${VERBOSE:-no}" \
+    INSTALL_LOG="$install_log" \
+    bash "$install_script" --update; then
+    rm -f "$install_script"
+    msg_error "Update failed (log: ${install_log})"
+    exit 1
+  fi
+  rm -f "$install_script"
+  msg_ok "Updated successfully!"
   exit
 }
 
