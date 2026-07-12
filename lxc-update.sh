@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Homelab Dashboard - update (community-script layout)
+# Homelab Dashboard - update
 #
 # In een LXC container:
 #   bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-update.sh)"
@@ -8,74 +8,108 @@
 # Vanaf Proxmox host:
 #   pct exec <CTID> -t -- bash -c "$(curl -fsSL https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main/lxc-update.sh)"
 
-source <(curl -fsSL https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc/build.func)
+set -euo pipefail
 
 REPO_RAW="${HOMELAB_REPO_RAW:-https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main}"
-APP="Homelab Dashboard"
-NSAPP="homelab-dashboard"
-var_cpu="${var_cpu:-2}"
-var_ram="${var_ram:-2048}"
-var_disk="${var_disk:-4}"
+APP_DIR="${HOMELAB_DIR:-/opt/homelab-dashboard}"
+HTTP_PORT="${HOMELAB_HTTP_PORT:-8765}"
+VERBOSE="${VERBOSE:-no}"
+INSTALL_LOG="${INSTALL_LOG:-/root/.homelab-update-$(date +%Y%m%d_%H%M%S).log}"
 
-function header_info {
-  [[ "${_HEADER_SHOWN:-0}" == "1" ]] && return 0
-  _HEADER_SHOWN=1
-  clear
-  cat <<"EOF"
- _   _                      _       _
-| | | | ___  _ __ ___   ___| | __ _| |__
-| |_| |/ _ \| '_ ` _ \ / _ \ |/ _` | '_ \
-|  _  | (_) | | | | | |  __/ | (_| | |_) |
-|_| |_|\___/|_| |_| |_|\___|_|\__,_|_.__/
+# shellcheck disable=SC1091
+source <(curl -fsSL "${REPO_RAW}/scripts/lxc-ui.sh")
 
- ____            _     _                         _
-|  _ \  __ _ ___| |__ | |__   ___   __ _ _ __ __| |
-| | | |/ _` / __| '_ \| '_ \ / _ \ / _` | '__/ _` |
-| |_| | (_| \__ \ | | | |_) | (_) | (_| | | | (_| |
-|____/ \__,_|___/_| |_|_.__/ \___/ \__,_|_|  \__,_|
-
-EOF
+run_silent() {
+  if [[ "$VERBOSE" == "yes" ]]; then
+    "$@"
+  else
+    "$@" >>"$INSTALL_LOG" 2>&1
+  fi
 }
 
-header_info "$APP"
-variables
-color
-catch_errors
-
-function update_script() {
-  local app_dir="${HOMELAB_DIR:-/opt/homelab-dashboard}"
-  local http_port="${HOMELAB_HTTP_PORT:-8765}"
-  local install_script install_log
-
-  header_info
-  check_container_storage
-  check_container_resources
-
-  if [[ ! -f "${app_dir}/homelab_dashboard.py" ]]; then
-    msg_error "No ${APP} Installation Found!"
-    exit
+choose_update_mode() {
+  if [[ -n "${PHS_SILENT:-}" && "${PHS_SILENT}" == "1" ]]; then
+    VERBOSE="no"
+    return 0
   fi
 
-  install_log="/root/.homelab-update-$(date +%Y%m%d_%H%M%S).log"
-  export INSTALL_LOG="$install_log"
+  if ! command -v whiptail >/dev/null 2>&1 || ! [[ -t 0 ]] || [[ "${TERM:-}" == "dumb" ]]; then
+    msg_warn "Geen interactieve terminal — silent mode wordt gebruikt."
+    VERBOSE="no"
+    return 0
+  fi
+
+  local choice
+  choice="$(whiptail --backtitle "Homelab Dashboard" \
+    --title "Homelab Dashboard LXC Update" \
+    --menu "Kies een update-modus:" 12 68 3 \
+    "1" "YES (Silent Mode)" \
+    "2" "YES (Verbose Mode)" \
+    "3" "NO (Cancel Update)" \
+    --nocancel --default-item "1" 3>&1 1>&2 2>&3)" || choice="3"
+
+  case "$choice" in
+  1) VERBOSE="no" ;;
+  2) VERBOSE="yes" ;;
+  *)
+    clear
+    msg_error "Update geannuleerd door gebruiker."
+    exit 0
+    ;;
+  esac
+}
+
+run_update() {
+  local install_script ip
+
+  if [[ "$(id -u)" -ne 0 ]]; then
+    msg_error "Dit script moet als root worden uitgevoerd."
+    exit 1
+  fi
+
+  show_header "HOMELAB DASHBOARD UPDATER"
+
+  if [[ ! -f "${APP_DIR}/homelab_dashboard.py" ]]; then
+    msg_error "Geen Homelab Dashboard installatie gevonden in ${APP_DIR}."
+    exit 1
+  fi
 
   install_script="$(mktemp /tmp/homelab-lxc-update.XXXXXX.sh)"
 
-  msg_info "Updating ${APP}"
-  $STD curl -fsSL "${REPO_RAW}/lxc-install.sh" -o "$install_script"
-  chmod +x "$install_script"
-
-  if ! HOMELAB_UI=community VERBOSE="${VERBOSE:-no}" INSTALL_LOG="$install_log" \
-    bash "$install_script" --update; then
+  msg_info "Updater-script ophalen..."
+  if run_silent curl -fsSL "${REPO_RAW}/lxc-install.sh" -o "$install_script"; then
+    chmod +x "$install_script"
+    msg_ok "Updater-script opgehaald."
+  else
     rm -f "$install_script"
-    msg_error "Update failed (log: ${install_log})"
+    msg_error "Ophalen updater-script mislukt (log: ${INSTALL_LOG})."
+    exit 1
+  fi
+
+  msg_info "Homelab Dashboard bijwerken..."
+  if HOMELAB_UI=community VERBOSE="$VERBOSE" INSTALL_LOG="$INSTALL_LOG" \
+    bash "$install_script" --update; then
+    msg_ok "Homelab Dashboard bijgewerkt."
+  else
+    rm -f "$install_script"
+    msg_error "Update mislukt (log: ${INSTALL_LOG})."
     exit 1
   fi
   rm -f "$install_script"
 
-  msg_ok "Updated successfully!"
-  local ip="${LOCAL_IP:-$(hostname -I 2>/dev/null | awk '{print $1}')}"
-  echo -e "${GATEWAY}${BGN}http://${ip:-<container-ip>}:${http_port}${CL}"
+  msg_info "Overbodige pakketten opruimen..."
+  export DEBIAN_FRONTEND=noninteractive
+  run_silent apt-get autoremove -y
+  run_silent apt-get autoclean -y
+  msg_ok "Systeem is opgeruimd."
+
+  msg_ok "Update voltooid!"
+  ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  echo ""
+  echo -e "  ${CY}Dashboard:${BGN_OFF}  ${BGN} http://${ip:-<container-ip>}:${HTTP_PORT} ${BGN_OFF}"
+  echo ""
 }
 
-start
+choose_update_mode
+export VERBOSE INSTALL_LOG
+run_update

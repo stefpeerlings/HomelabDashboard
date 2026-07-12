@@ -13,18 +13,10 @@
 
 set -euo pipefail
 
-COMMUNITY_BASE="https://raw.githubusercontent.com/community-scripts/ProxmoxVE/main/misc"
 if [[ "${HOMELAB_UI:-}" == "community" ]]; then
-  if command -v curl >/dev/null 2>&1; then
-    # shellcheck disable=SC1091
-    source <(curl -fsSL "${COMMUNITY_BASE}/core.func") 2>/dev/null || true
-    # shellcheck disable=SC1091
-    source <(curl -fsSL "${COMMUNITY_BASE}/error_handler.func") 2>/dev/null || true
-    load_functions 2>/dev/null || true
-    catch_errors 2>/dev/null || true
-    color 2>/dev/null || true
-    set_std_mode 2>/dev/null || true
-  fi
+  REPO_RAW_UI="${HOMELAB_REPO_RAW:-https://raw.githubusercontent.com/stefpeerlings/HomelabDashboard/main}"
+  # shellcheck disable=SC1091
+  source <(curl -fsSL "${REPO_RAW_UI}/scripts/lxc-ui.sh") 2>/dev/null || true
   export INSTALL_LOG="${INSTALL_LOG:-/root/.homelab-update.log}"
 fi
 
@@ -70,11 +62,11 @@ step() {
 }
 
 run_quiet() {
-  if [[ "$UI_MODE" == "community" ]] && declare -F silent >/dev/null 2>&1; then
+  if [[ "$UI_MODE" == "community" ]]; then
     if [[ "${VERBOSE:-no}" == "yes" ]]; then
       "$@"
     else
-      $STD "$@"
+      "$@" >>"$INSTALL_LOG" 2>&1
     fi
   elif [[ "$QUIET" == true ]]; then
     "$@" >>"$INSTALL_LOG" 2>&1
@@ -104,11 +96,11 @@ clone_or_update_repo() {
       local_rev="$(git -C "$APP_DIR" rev-parse HEAD)"
       remote_rev="$(git -C "$APP_DIR" rev-parse "origin/${REPO_BRANCH}")"
       if [[ "$local_rev" == "$remote_rev" ]]; then
-        ui_ok "Homelab Dashboard is already up-to-date"
+        ui_ok "Homelab Dashboard is al up-to-date."
         return 0
       fi
       run_quiet git -C "$APP_DIR" pull origin "$REPO_BRANCH"
-      ui_ok "Pulled latest GitHub release"
+      ui_ok "Nieuwste GitHub-release opgehaald."
       return 0
     fi
     run_quiet git -C "$APP_DIR" pull origin "$REPO_BRANCH"
@@ -270,20 +262,16 @@ if [[ "$UPDATE_MODE" == true ]]; then
     fi
     exit 1
   fi
-  ui_info "Pulling latest GitHub release"
+  ui_info "GitHub-release ophalen..."
   clone_or_update_repo
-  ui_info "Updating Python environment"
+  ui_info "Python-omgeving bijwerken..."
   setup_venv
   install_python_packages
-  ui_ok "Updated Python environment"
-  ui_info "Restarting Homelab Dashboard"
+  ui_ok "Python-omgeving bijgewerkt."
+  ui_info "Homelab Dashboard herstarten..."
   setup_systemd
-  if [[ "$UI_MODE" == "community" ]] && declare -F silent >/dev/null 2>&1 && [[ "${VERBOSE:-no}" != "yes" ]]; then
-    $STD systemctl restart "$SERVICE_NAME"
-  else
-    systemctl restart "$SERVICE_NAME"
-  fi
-  ui_ok "Restarted Homelab Dashboard"
+  run_quiet systemctl restart "$SERVICE_NAME"
+  ui_ok "Homelab Dashboard herstart."
   if [[ "$UI_MODE" == "community" ]]; then
     exit 0
   fi
