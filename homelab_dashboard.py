@@ -3118,6 +3118,7 @@ HTML = r"""<!DOCTYPE html>
       display: none; align-items: center; justify-content: center; z-index: 50; padding: 1rem;
     }
     .modal-backdrop.open { display: flex; }
+    #confirm-modal { z-index: 60; }
     .modal {
       width: min(540px, 100%); background: var(--panel);
       border: 1px solid var(--border); border-radius: 16px; overflow: hidden;
@@ -3446,6 +3447,21 @@ HTML = r"""<!DOCTYPE html>
         </div>
         <div class="modal-actions">
           <button class="btn btn-primary" id="users-create" type="button">Gebruiker aanmaken</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="confirm-modal">
+    <div class="modal" style="width:min(420px,100%)">
+      <div class="modal-head">
+        <div class="modal-title" id="confirm-title">Bevestigen</div>
+      </div>
+      <div class="modal-body">
+        <p id="confirm-message" style="margin:0;line-height:1.5"></p>
+        <div class="modal-actions">
+          <button class="btn" id="confirm-cancel" type="button">Annuleren</button>
+          <button class="btn btn-primary" id="confirm-ok" type="button">Opslaan</button>
         </div>
       </div>
     </div>
@@ -3860,6 +3876,11 @@ HTML = r"""<!DOCTYPE html>
     const accountPasswordBtnEl = document.getElementById("account-password-btn");
     const accountLogoutBtnEl = document.getElementById("account-logout-btn");
     const usersModalEl = document.getElementById("users-modal");
+    const confirmModalEl = document.getElementById("confirm-modal");
+    const confirmTitleEl = document.getElementById("confirm-title");
+    const confirmMessageEl = document.getElementById("confirm-message");
+    const confirmOkEl = document.getElementById("confirm-ok");
+    const confirmCancelEl = document.getElementById("confirm-cancel");
     const usersListEl = document.getElementById("users-list");
     const usersErrorEl = document.getElementById("users-error");
     const userNewNameEl = document.getElementById("user-new-name");
@@ -4266,6 +4287,44 @@ HTML = r"""<!DOCTYPE html>
       if (message) usersErrorEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
 
+    function showConfirm(message, options = {}) {
+      return new Promise((resolve) => {
+        const title = options.title || "Bevestigen";
+        const okLabel = options.okLabel || "Opslaan";
+        const cancelLabel = options.cancelLabel || "Annuleren";
+
+        confirmTitleEl.textContent = title;
+        confirmMessageEl.textContent = message;
+        confirmOkEl.textContent = okLabel;
+        confirmCancelEl.textContent = cancelLabel;
+        confirmModalEl.classList.add("open");
+
+        function cleanup(result) {
+          confirmModalEl.classList.remove("open");
+          confirmOkEl.removeEventListener("click", onOk);
+          confirmCancelEl.removeEventListener("click", onCancel);
+          confirmModalEl.removeEventListener("click", onBackdrop);
+          document.removeEventListener("keydown", onKeydown);
+          resolve(result);
+        }
+
+        function onOk() { cleanup(true); }
+        function onCancel() { cleanup(false); }
+        function onBackdrop(e) {
+          if (e.target === confirmModalEl) cleanup(false);
+        }
+        function onKeydown(e) {
+          if (e.key === "Escape") cleanup(false);
+        }
+
+        confirmOkEl.addEventListener("click", onOk);
+        confirmCancelEl.addEventListener("click", onCancel);
+        confirmModalEl.addEventListener("click", onBackdrop);
+        document.addEventListener("keydown", onKeydown);
+        confirmOkEl.focus();
+      });
+    }
+
     function renderUsersList(users) {
       usersListEl.textContent = "";
       if (!users.length) {
@@ -4327,11 +4386,20 @@ HTML = r"""<!DOCTYPE html>
           }
         }
 
-        emailSaveBtn.addEventListener("click", saveUserEmail);
+        async function confirmAndSaveUserEmail() {
+          const email = emailInput.value.trim();
+          const confirmMsg = email
+            ? `E-mail voor '${user.username}' opslaan als ${email}?`
+            : `E-mail voor '${user.username}' verwijderen?`;
+          if (!(await showConfirm(confirmMsg, { title: "E-mail opslaan" }))) return;
+          await saveUserEmail();
+        }
+
+        emailSaveBtn.addEventListener("click", confirmAndSaveUserEmail);
         emailInput.addEventListener("keydown", (e) => {
           if (e.key === "Enter") {
             e.preventDefault();
-            saveUserEmail();
+            confirmAndSaveUserEmail();
           }
         });
 
