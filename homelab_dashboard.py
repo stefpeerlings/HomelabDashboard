@@ -2854,6 +2854,8 @@ HTML = r"""<!DOCTYPE html>
       --warn-soft: rgba(251,191,36,.12);
       --bad: #f87171;
       --bad-soft: rgba(248,113,113,.12);
+      --cat-backup: #c084fc;
+      --cat-docker: #38bdf8;
       --mono: "JetBrains Mono", "SF Mono", "Fira Code", ui-monospace, monospace;
       --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       --radius: 12px;
@@ -3073,8 +3075,8 @@ HTML = r"""<!DOCTYPE html>
       position: relative; z-index: 2; min-width: 4.75rem;
     }
     .host-item-actions .btn { width: auto; text-align: center; min-width: 4.75rem; }
-    #sidebar-logs, #sidebar-ssh { display: none; }
-    #sidebar-logs.visible, #sidebar-ssh.visible { display: flex; }
+    #sidebar-ssh { display: none; }
+    #sidebar-ssh.visible { display: flex; }
     .sidebar-divider {
       height: 1px; background: var(--border-subtle); margin: .15rem 0;
     }
@@ -3147,6 +3149,88 @@ HTML = r"""<!DOCTYPE html>
       width: auto; text-align: center; min-width: 3.5rem;
       padding: .35rem .45rem; font-size: .66rem;
     }
+
+    /* Category pill bar (top of content, replaces the old vertical sidebar list) */
+    .category-bar {
+      display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; justify-content: space-between;
+    }
+    .category-pills { display: flex; flex-wrap: wrap; gap: .5rem; flex: 1; min-width: 0; }
+    .category-bar-actions { display: flex; gap: .5rem; flex-shrink: 0; flex-wrap: wrap; }
+    .category-pills .cat-item { display: inline-flex; }
+    .category-pills .cat-tab {
+      display: inline-flex; align-items: center; gap: .5rem;
+      padding: .45rem .8rem .45rem .5rem; border-radius: 999px; white-space: nowrap;
+    }
+    .category-pills .cat-icon { width: 24px; height: 24px; border-radius: 7px; }
+    .category-pills .cat-icon svg { width: 13px; height: 13px; }
+    .category-pills .cat-info { flex-direction: row; align-items: baseline; gap: 0; }
+    .category-pills .cat-desc { display: none; }
+    .category-pills .cat-item-actions { flex-direction: row; min-width: 0; }
+    .category-pills .cat-item-actions .btn { min-width: 0; padding: .3rem .55rem; }
+
+    /* Status stat cards */
+    .stat-grid {
+      display: grid; gap: .65rem; padding: 1rem 1.1rem;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    }
+    .stat-grid.empty { display: none; }
+    .stat-card {
+      background: var(--panel-2); border: 1px solid var(--border-subtle);
+      border-left: 3px solid var(--muted);
+      border-radius: var(--radius-sm); padding: .65rem .85rem;
+      display: flex; flex-direction: column; gap: .3rem; min-width: 0;
+    }
+    .stat-card.stat-ok { border-left-color: var(--ok); }
+    .stat-card.stat-warn { border-left-color: var(--warn); }
+    .stat-card.stat-bad { border-left-color: var(--bad); }
+    .stat-label {
+      font-size: .66rem; text-transform: uppercase; letter-spacing: .06em;
+      color: var(--muted); font-weight: 650;
+    }
+    .stat-value {
+      font-size: .85rem; font-weight: 600; color: var(--text);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .stat-bar { height: 4px; border-radius: 999px; background: var(--border-subtle); overflow: hidden; margin-top: .1rem; }
+    .stat-bar-fill { height: 100%; background: var(--ok); border-radius: 999px; }
+    .stat-card.stat-warn .stat-bar-fill { background: var(--warn); }
+    .stat-card.stat-bad .stat-bar-fill { background: var(--bad); }
+    .stat-empty-hint { padding: 0 1.1rem 1rem; color: var(--muted); font-size: .78rem; }
+    .status-raw-wrap { border-top: 1px solid var(--border-subtle); }
+    .status-raw-wrap > summary {
+      cursor: pointer; padding: .55rem 1.1rem; font-size: .72rem; color: var(--muted); user-select: none;
+      list-style: none;
+    }
+    .status-raw-wrap > summary::-webkit-details-marker { display: none; }
+    .status-raw-wrap > summary:hover { color: var(--text-secondary); }
+    .status-raw-wrap[open] > summary { border-bottom: 1px solid var(--border-subtle); }
+
+    /* Panel toolbar: search + density */
+    .panel-toolbar { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+    .panel-filter {
+      flex: 1; min-width: 180px; background: var(--panel); color: var(--text);
+      border: 1px solid var(--border); border-radius: var(--radius-sm);
+      padding: .5rem .75rem; font-size: .82rem;
+    }
+    .panel-filter::placeholder { color: var(--muted); }
+    #panels.compact { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+    #panels.compact .panel-log { height: 140px !important; }
+    #panels.compact .panel-desc { display: none; }
+    #panels.compact .panel-head { flex-wrap: wrap; row-gap: .4rem; }
+    #panels.compact .panel-actions { flex-wrap: wrap; flex-basis: 100%; justify-content: flex-start; row-gap: .3rem; }
+    .panel-empty-hint {
+      grid-column: 1 / -1; color: var(--muted); font-size: .82rem;
+      padding: 1.25rem; text-align: center; border: 1px dashed var(--border-subtle);
+      border-radius: var(--radius); background: var(--panel-2);
+    }
+
+    /* Category accent on panel cards */
+    .panel { border-left: 3px solid var(--border-subtle); transition: box-shadow .15s, border-color .15s; }
+    .panel[data-category="proxmox"] { border-left-color: var(--accent); }
+    .panel[data-category="backup"] { border-left-color: var(--cat-backup); }
+    .panel[data-category="container"] { border-left-color: var(--ok); }
+    .panel[data-category="docker"] { border-left-color: var(--cat-docker); }
+    .panel:hover { box-shadow: 0 4px 20px rgba(0,0,0,.3); }
 
     .grid { display: grid; gap: 1rem; }
     @media (min-width: 1100px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -3327,6 +3411,14 @@ HTML = r"""<!DOCTYPE html>
             </div>
           </div>
 
+          <div class="category-bar">
+            <div class="category-pills" id="log-categories"></div>
+            <div class="category-bar-actions">
+              <button class="btn btn-sm btn-add" id="btn-cat-add" type="button" style="display:none">+ Categorie</button>
+              <button class="btn btn-sm btn-add" id="btn-add">+ Panel</button>
+            </div>
+          </div>
+
           <section class="status-widget">
             <div class="status-widget-head">
               <div class="status-widget-title">
@@ -3338,10 +3430,22 @@ HTML = r"""<!DOCTYPE html>
                 <span class="status-updated" id="updated">--</span>
               </div>
             </div>
-            <pre id="status" class="status-card busy">Status laden...</pre>
+            <div id="status-grid" class="stat-grid"></div>
+            <p class="stat-empty-hint" id="status-empty-hint" hidden>Geen gestructureerde status herkend — zie ruwe output.</p>
+            <details class="status-raw-wrap">
+              <summary>Ruwe output</summary>
+              <pre id="status" class="status-card busy">Status laden...</pre>
+            </details>
           </section>
 
-          <div id="panels" class="grid"></div>
+          <div class="panel-toolbar">
+            <input type="search" id="panel-filter" class="panel-filter" placeholder="Zoek paneel in deze categorie...">
+            <button type="button" class="btn btn-sm" id="density-toggle">Compact</button>
+          </div>
+
+          <div id="panels" class="grid">
+            <p class="panel-empty-hint" id="panel-empty-hint" hidden>Geen panels in deze categorie of ze matchen niet met je zoekopdracht.</p>
+          </div>
         </div>
       </div>
 
@@ -3382,13 +3486,6 @@ HTML = r"""<!DOCTYPE html>
             SSH
           </button>
         </div>
-      </div>
-
-      <div class="sidebar-section visible" id="sidebar-logs">
-        <div class="sidebar-label">Categorieën</div>
-        <div class="log-categories" id="log-categories"></div>
-        <button class="btn btn-add" id="btn-cat-add" type="button" style="display:none">+ Categorie toevoegen</button>
-        <button class="btn btn-add" id="btn-add" style="margin-top:.5rem">+ Panel toevoegen</button>
       </div>
 
       <div class="sidebar-divider"></div>
@@ -3903,7 +4000,6 @@ HTML = r"""<!DOCTYPE html>
     const sshCountEl = document.getElementById("ssh-count");
     const panelsEl = document.getElementById("panels");
     const logCategoriesEl = document.getElementById("log-categories");
-    const sidebarLogsEl = document.getElementById("sidebar-logs");
     const pageTitleEl = document.getElementById("page-title");
     const pageSubEl = document.getElementById("page-sub");
     const hostListEl = document.getElementById("host-list");
@@ -4818,7 +4914,6 @@ HTML = r"""<!DOCTYPE html>
       });
       document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
       document.getElementById("view-" + viewName).classList.add("active");
-      if (sidebarLogsEl) sidebarLogsEl.classList.toggle("visible", viewName === "logs");
       sidebarSshEl.classList.toggle("visible", viewName === "ssh");
       if (viewName === "ssh") {
         try {
@@ -5345,9 +5440,68 @@ HTML = r"""<!DOCTYPE html>
       if (statusDotEl) statusDotEl.className = "status-dot " + state;
     }
 
+    const statusGridEl = document.getElementById("status-grid");
+    const statusEmptyHintEl = document.getElementById("status-empty-hint");
+
+    function renderStatusGrid(body) {
+      if (!statusGridEl) return;
+      const tiles = [];
+      for (const raw of body.split("\n")) {
+        const line = raw.trim();
+        if (!line) continue;
+        let m;
+        if ((m = line.match(/^Node:\s*(.+)$/i))) {
+          tiles.push({ label: "Node", value: m[1], state: "" });
+        } else if ((m = line.match(/^RAM:\s*([\d.]+)([A-Za-z]*)\s*\/\s*([\d.]+)([A-Za-z]*)/i))) {
+          const used = parseFloat(m[1]);
+          const total = parseFloat(m[3]);
+          const pct = total ? Math.round((used / total) * 100) : null;
+          tiles.push({
+            label: "RAM", value: `${m[1]}${m[2]} / ${m[3]}${m[4]}`, pct,
+            state: pct === null ? "" : pct >= 90 ? "bad" : pct >= 75 ? "warn" : "ok",
+          });
+        } else if ((m = line.match(/^Disk\s*\/:\s*(\d+)%\s*\(([^)]+)\)/i))) {
+          const pct = parseInt(m[1], 10);
+          tiles.push({ label: "Schijf /", value: m[2], pct, state: pct >= 90 ? "bad" : pct >= 75 ? "warn" : "ok" });
+        } else if ((m = line.match(/^Proxmox\s*\(([^)]+)\):\s*(online|offline)/i))) {
+          const online = m[2].toLowerCase() === "online";
+          tiles.push({ label: "Proxmox", value: online ? "Online" : "Offline", state: online ? "ok" : "bad" });
+        } else if ((m = line.match(/^PBS\s*\(([^)]+)\):\s*(online|uit)/i))) {
+          const online = m[2].toLowerCase() === "online";
+          tiles.push({ label: "PBS", value: online ? "Online" : "Uit", state: online ? "ok" : "" });
+        } else if ((m = line.match(/^VM:\s*(\d+)\/(\d+)\s*running/i))) {
+          tiles.push({ label: "VM's", value: `${m[1]} / ${m[2]} running`, state: "" });
+        } else if ((m = line.match(/^LXC:\s*(\d+)\/(\d+)\s*running/i))) {
+          tiles.push({ label: "LXC's", value: `${m[1]} / ${m[2]} running`, state: "" });
+        } else if ((m = line.match(/^Backup:\s*(.+)$/i))) {
+          const v = m[1];
+          const vLower = v.toLowerCase();
+          const state = vLower.includes("mislukt") ? "bad" : vLower.includes("bezig") ? "warn" : vLower.includes("ok") ? "ok" : "";
+          tiles.push({ label: "Backup", value: v, state });
+        } else if ((m = line.match(/^PBS wake:\s*(.+)$/i))) {
+          tiles.push({ label: "PBS wake", value: m[1], state: "" });
+        } else if ((m = line.match(/^PBS shutdown:\s*(.+)$/i))) {
+          tiles.push({ label: "PBS shutdown", value: m[1], state: m[1].toLowerCase().includes("shutdown mag") ? "ok" : "" });
+        } else if (/^up\s|^\d+\s*(days?|weeks?|min)/i.test(line)) {
+          tiles.push({ label: "Uptime", value: line, state: "" });
+        }
+        // Onherkende regels worden overgeslagen in de tegelweergave, maar blijven zichtbaar via "Ruwe output".
+      }
+
+      statusGridEl.innerHTML = tiles.map((t) => `
+        <div class="stat-card${t.state ? " stat-" + t.state : ""}">
+          <div class="stat-label">${t.label}</div>
+          <div class="stat-value">${t.value}</div>
+          ${typeof t.pct === "number" ? `<div class="stat-bar"><div class="stat-bar-fill" style="width:${Math.min(100, Math.max(0, t.pct))}%"></div></div>` : ""}
+        </div>
+      `).join("");
+      if (statusEmptyHintEl) statusEmptyHintEl.hidden = tiles.length > 0;
+    }
+
     function paintStatus(text) {
       const body = text.trim() || "(geen output)";
       statusEl.textContent = body;
+      renderStatusGrid(body);
       const lines = body.split("\n").map((l) => l.toLowerCase());
       const proxmoxOffline = lines.some((l) => l.includes("proxmox") && l.includes("offline"));
       const backupFailed = lines.some((l) => l.includes("backup:") && l.includes("mislukt"));
@@ -5467,6 +5621,43 @@ HTML = r"""<!DOCTYPE html>
       categoryEsCat = null;
     }
 
+    const panelFilterEl = document.getElementById("panel-filter");
+    const densityToggleEl = document.getElementById("density-toggle");
+    let panelFilterText = "";
+
+    function panelMatchesFilter(pv) {
+      if (!panelFilterText) return true;
+      return pv.panel.title.toLowerCase().includes(panelFilterText);
+    }
+
+    function updatePanelVisibility() {
+      let visibleCount = 0;
+      panelViews.forEach((pv) => {
+        const inCategory = pv.panel.category === activeLogCategory;
+        const show = inCategory && panelMatchesFilter(pv);
+        pv.wrap.style.display = show ? "" : "none";
+        if (show) visibleCount++;
+        if (!inCategory) {
+          pv.badge.textContent = "idle";
+          pv.badge.classList.remove("live", "err");
+        }
+      });
+      const emptyHint = document.getElementById("panel-empty-hint");
+      if (emptyHint) emptyHint.hidden = visibleCount > 0;
+    }
+
+    panelFilterEl?.addEventListener("input", () => {
+      panelFilterText = panelFilterEl.value.trim().toLowerCase();
+      updatePanelVisibility();
+    });
+
+    let compactMode = false;
+    densityToggleEl?.addEventListener("click", () => {
+      compactMode = !compactMode;
+      panelsEl.classList.toggle("compact", compactMode);
+      densityToggleEl.textContent = compactMode ? "Comfortabel" : "Compact";
+    });
+
     function applyLogCategory(cat) {
       activeLogCategory = cat;
       document.querySelectorAll(".cat-tab").forEach((btn) => {
@@ -5477,14 +5668,9 @@ HTML = r"""<!DOCTYPE html>
         if (pageTitleEl) pageTitleEl.textContent = meta.title;
         if (pageSubEl) pageSubEl.textContent = meta.sub;
       }
-      panelViews.forEach((pv) => {
-        const show = pv.panel.category === cat;
-        pv.wrap.style.display = show ? "" : "none";
-        if (!show) {
-          pv.badge.textContent = "idle";
-          pv.badge.classList.remove("live", "err");
-        }
-      });
+      if (panelFilterEl) panelFilterEl.value = "";
+      panelFilterText = "";
+      updatePanelVisibility();
       startCategoryStream(cat);
     }
 
@@ -5509,6 +5695,7 @@ HTML = r"""<!DOCTYPE html>
         btn.type = "button";
         btn.className = "cat-tab" + (activeLogCategory === catId ? " active" : "");
         btn.dataset.cat = catId;
+        btn.title = meta.sub ? `${meta.title} — ${meta.sub}` : meta.title;
         btn.innerHTML =
           `<span class="cat-icon">${categoryIcon(catId)}</span>` +
           `<span class="cat-info"><span class="cat-name">${meta.title}</span>` +
