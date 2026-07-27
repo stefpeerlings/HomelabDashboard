@@ -10,6 +10,7 @@ import hmac
 import json
 import os
 import pty
+import queue
 import re
 import secrets
 import select
@@ -2584,24 +2585,58 @@ def public_config(config: dict) -> dict:
     }
 
 
-def stream_command(command: list[str], write):
-    proc = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1,
-    )
-    try:
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            write(f"data: {line.rstrip(chr(10))}\n\n")
-    finally:
-        proc.terminate()
+def stream_panels_multi(panels: list[dict], write):
+    """Stream meerdere panel-commando's over één SSE-verbinding.
+
+    Elke browser-tab kan maar 6 gelijktijdige HTTP/1.1-verbindingen per host
+    openen; met één EventSource per paneel liepen categorieën met veel panels
+    (bv. 17 containers) daar tegenaan en bleven overige requests (zoals
+    /api/status) voor altijd in de wachtrij hangen.
+    """
+    q: "queue.Queue[tuple[str, str]]" = queue.Queue()
+    procs: list[subprocess.Popen] = []
+
+    def worker(panel_id: str, command: list[str]):
         try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            proc.kill()
+            proc = subprocess.Popen(
+                command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1
+            )
+        except Exception as exc:
+            q.put((panel_id, f"[fout] kon commando niet starten: {exc}"))
+            return
+        procs.append(proc)
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                q.put((panel_id, line.rstrip("\n")))
+        finally:
+            proc.terminate()
+            try:
+                proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+
+    threads = [
+        threading.Thread(target=worker, args=(panel["id"], panel["command"]), daemon=True)
+        for panel in panels
+        if panel.get("command")
+    ]
+    for t in threads:
+        t.start()
+
+    try:
+        while True:
+            try:
+                panel_id, line = q.get(timeout=15)
+            except queue.Empty:
+                write(": ping\n\n")
+                continue
+            write(f"data: {json.dumps({'id': panel_id, 'line': line})}\n\n")
+    finally:
+        for proc in procs:
+            proc.terminate()
+        for t in threads:
+            t.join(timeout=2)
 
 
 async def bridge_local_shell(websocket, host_cfg: dict):
@@ -5332,7 +5367,11 @@ HTML = r"""<!DOCTYPE html>
       }
     }
 
+    let statusFetchInFlight = false;
+
     async function refreshStatus() {
+      if (statusFetchInFlight) return;
+      statusFetchInFlight = true;
       try {
         const res = await apiFetch("/api/status");
         const data = await res.json();
@@ -5341,6 +5380,8 @@ HTML = r"""<!DOCTYPE html>
       } catch (e) {
         statusEl.textContent = "Status ophalen mislukt: " + e;
         setStatusState("offline");
+      } finally {
+        statusFetchInFlight = false;
       }
     }
 
@@ -5372,8 +5413,6 @@ HTML = r"""<!DOCTYPE html>
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Verwijderen mislukt");
-        const pv = panelViews.get(panel.id);
-        if (pv) stopPanelStream(pv);
         panelViews.delete(panel.id);
         window.location.reload();
       } catch (e) {
@@ -5381,32 +5420,51 @@ HTML = r"""<!DOCTYPE html>
       }
     }
 
-    function startPanelStream(pv) {
-      if (!pv || pv.es) return;
-      const es = new EventSource("/api/logs/" + encodeURIComponent(pv.panel.id));
-      pv.es = es;
+    let categoryEs = null;
+    let categoryEsCat = null;
+
+    function setCategoryPanelsState(cat, state) {
+      panelViews.forEach((pv) => {
+        if (pv.panel.category !== cat) return;
+        pv.badge.textContent = state === "live" ? "live" : state === "offline" ? "offline" : "idle";
+        pv.badge.classList.toggle("live", state === "live");
+        pv.badge.classList.toggle("err", state === "offline");
+      });
+    }
+
+    function startCategoryStream(cat) {
+      if (categoryEs && categoryEsCat === cat) return;
+      stopCategoryStream();
+      categoryEsCat = cat;
+      const es = new EventSource("/api/logs-multi?category=" + encodeURIComponent(cat));
+      categoryEs = es;
       es.onopen = () => {
-        pv.badge.textContent = "live";
-        pv.badge.classList.add("live");
         connEl.textContent = "Live";
         connEl.classList.add("live");
+        setCategoryPanelsState(cat, "live");
       };
       es.onmessage = (ev) => {
-        if (!pv.paused) appendLog(pv.log, ev.data, pv.autoScroll);
+        let payload;
+        try {
+          payload = JSON.parse(ev.data);
+        } catch {
+          return;
+        }
+        const pv = panelViews.get(payload.id);
+        if (pv && !pv.paused) appendLog(pv.log, payload.line, pv.autoScroll);
       };
       es.onerror = () => {
-        pv.badge.textContent = "offline";
-        pv.badge.classList.remove("live");
-        pv.badge.classList.add("err");
+        connEl.classList.remove("live");
+        setCategoryPanelsState(cat, "offline");
       };
     }
 
-    function stopPanelStream(pv) {
-      if (!pv?.es) return;
-      pv.es.close();
-      pv.es = null;
-      pv.badge.textContent = "idle";
-      pv.badge.classList.remove("live", "err");
+    function stopCategoryStream() {
+      if (categoryEs) {
+        categoryEs.close();
+        categoryEs = null;
+      }
+      categoryEsCat = null;
     }
 
     function applyLogCategory(cat) {
@@ -5422,9 +5480,12 @@ HTML = r"""<!DOCTYPE html>
       panelViews.forEach((pv) => {
         const show = pv.panel.category === cat;
         pv.wrap.style.display = show ? "" : "none";
-        if (show) startPanelStream(pv);
-        else stopPanelStream(pv);
+        if (!show) {
+          pv.badge.textContent = "idle";
+          pv.badge.classList.remove("live", "err");
+        }
       });
+      startCategoryStream(cat);
     }
 
     function updateCategoryCounts(counts) {
@@ -5715,7 +5776,6 @@ HTML = r"""<!DOCTYPE html>
         wrap, panel, log, badge, pauseBtn,
         paused: false,
         autoScroll: true,
-        es: null,
       };
       log.addEventListener("scroll", () => {
         pv.autoScroll = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
@@ -6185,19 +6245,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._send_json({"ok": False, "error": str(exc)}, code=500)
             return
 
-        if path.startswith("/api/logs/"):
+        if path == "/api/logs-multi":
             if self._require_role("viewer") is False:
                 return
-            panel_id = path.removeprefix("/api/logs/")
-            panel = panel_map(config).get(panel_id)
-            if not panel:
-                self.send_error(404, "Onbekend panel")
-                return
-
-            command = panel.get("command")
-            if not command:
-                self.send_error(500, "Panel heeft geen command")
-                return
+            query = parse_qs(urlparse(self.path).query)
+            category = (query.get("category") or [""])[0].strip() or "proxmox"
+            panels = [
+                p for p in config.get("panels", [])
+                if p.get("enabled", True) and p.get("category", "proxmox") == category
+            ]
 
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
@@ -6213,7 +6269,7 @@ class Handler(BaseHTTPRequestHandler):
                     raise StopIteration
 
             try:
-                stream_command(command, write)
+                stream_panels_multi(panels, write)
             except (BrokenPipeError, StopIteration):
                 pass
             return
