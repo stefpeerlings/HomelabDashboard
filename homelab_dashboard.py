@@ -4225,9 +4225,9 @@ HTML = r"""<!DOCTYPE html>
     function showPasswordResetUnavailable(el) {
       el.style.color = "";
       el.innerHTML =
-        "__PASSWORD_RESET_UNAVAILABLE__<br>" +
-        '<span class="help">Beheerders: <a href="__PASSWORD_RESET_SETUP_URL__" target="_blank" rel="noopener">smtp.json-voorbeeld op GitHub</a> ' +
-        "(server: <code>__SMTP_CONFIG_PATH__</code>)</span>";
+        "__PASSWORD_RESET_UNAVAILABLE__" +
+        '<div class="help" style="margin-top:.5rem">Beheerders: <a href="__PASSWORD_RESET_SETUP_URL__" target="_blank" rel="noopener">smtp.json-voorbeeld op GitHub</a> ' +
+        "(server: <code>__SMTP_CONFIG_PATH__</code>)</div>";
     }
 
     function toggleAccountMenu(open) {
