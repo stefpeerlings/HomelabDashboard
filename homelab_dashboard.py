@@ -3189,7 +3189,7 @@ HTML = r"""<!DOCTYPE html>
     }
     .stat-value {
       font-size: .85rem; font-weight: 600; color: var(--text);
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      white-space: normal; overflow-wrap: break-word; line-height: 1.3;
     }
     .stat-bar { height: 4px; border-radius: 999px; background: var(--border-subtle); overflow: hidden; margin-top: .1rem; }
     .stat-bar-fill { height: 100%; background: var(--ok); border-radius: 999px; }
